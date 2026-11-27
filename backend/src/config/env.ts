@@ -20,7 +20,7 @@ const envSchema = z.object({
   INTERNAL_SERVICE_TOKEN: z.string().min(12).default('marketsphere_local_internal_service_token'),
   RESERVATION_TTL_MINUTES: z.coerce.number().int().positive().default(15),
   MAX_UPLOAD_SIZE_BYTES: z.coerce.number().int().positive().default(5 * 1024 * 1024),
-  UPLOAD_STORAGE_DIR: z.string().default('./uploads'),
+  UPLOAD_STORAGE_DIR: z.string().default(process.env.VERCEL ? '/tmp/marketsphere-uploads' : './uploads'),
   PAYMENT_WEBHOOK_SECRET: z.string().min(12).default('marketsphere_sandbox_payment_webhook_secret'),
   SHIPPING_WEBHOOK_SECRET: z.string().min(12).default('marketsphere_sandbox_shipping_webhook_secret'),
   PYTHON_SERVICE_URL: z.string().url().default('http://localhost:8000'),
@@ -36,6 +36,17 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const allowedOrigins = env.CORS_ORIGIN.split(',')
-  .map((o) => o.trim())
-  .filter(Boolean);
+const vercelOrigins = [
+  process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null,
+  process.env.VERCEL_BRANCH_URL ? `https://${process.env.VERCEL_BRANCH_URL}` : null,
+  process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : null,
+].filter((o): o is string => Boolean(o));
+
+export const allowedOrigins = Array.from(
+  new Set([
+    ...env.CORS_ORIGIN.split(',')
+      .map((o) => o.trim())
+      .filter(Boolean),
+    ...vercelOrigins,
+  ]),
+);

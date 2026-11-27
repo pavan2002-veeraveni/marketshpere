@@ -29,9 +29,11 @@ function parseRedisConnection() {
   return {
     host: url.hostname,
     port: Number(url.port || 6379),
-    password: url.password || undefined,
+    username: url.username || undefined,
+    password: url.password ? decodeURIComponent(url.password) : undefined,
+    tls: url.protocol === 'rediss:' ? {} : undefined,
     maxRetriesPerRequest: null,
-    connectTimeout: 400,
+    connectTimeout: url.protocol === 'rediss:' ? 1500 : 400,
     enableOfflineQueue: false,
     retryStrategy(times: number) {
       if (times > 1) return null;

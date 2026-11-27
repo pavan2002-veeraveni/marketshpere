@@ -15,7 +15,7 @@ export function getRedisClient(): Redis {
       maxRetriesPerRequest: null,
       enableReadyCheck: true,
       lazyConnect: true,
-      connectTimeout: 400,
+      connectTimeout: env.REDIS_URL.startsWith('rediss://') ? 1500 : 400,
       enableOfflineQueue: false,
       retryStrategy(times) {
         if (times > 1) {

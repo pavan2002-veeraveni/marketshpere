@@ -53,7 +53,7 @@ class PythonServiceClient {
 
   constructor() {
     this.client = axios.create({
-      baseURL: env.PYTHON_SERVICE_URL,
+      baseURL: env.PYTHON_SERVICE_URL.replace(/\/+$/, ''),
       timeout: env.PYTHON_TIMEOUT_MS,
       headers: {
         'Content-Type': 'application/json',

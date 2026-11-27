@@ -8,6 +8,9 @@ const nextConfig: NextConfig = {
     ],
   },
   async rewrites() {
+    if (process.env.VERCEL && !process.env.INTERNAL_BACKEND_URL) {
+      return [];
+    }
     const backendOrigin = process.env.INTERNAL_BACKEND_URL || 'http://127.0.0.1:4000';
     return [
       {

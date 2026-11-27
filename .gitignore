@@ -22,6 +22,7 @@ python-services/htmlcov/
 .env
 .env.local
 .env.*.local
+.vercel/
 backend/.env
 frontend/.env.local
 python-services/.env

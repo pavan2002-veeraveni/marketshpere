@@ -1,3 +1,4 @@
+import fs from 'fs';
 import path from 'path';
 import express from 'express';
 import cors from 'cors';
@@ -86,9 +87,56 @@ export function createApp() {
   // Static sandbox uploads for product images (never exposes onboarding docs)
   app.use('/uploads/products', express.static(path.resolve(process.cwd(), env.UPLOAD_STORAGE_DIR, 'products')));
 
-  // OpenAPI / Swagger Docs
+  // OpenAPI / Swagger Docs (serve without trailing-slash redirect so Vercel slash normalization never loops)
+  const localDistCandidates = [
+    path.resolve(__dirname, '../../node_modules/swagger-ui-dist'),
+    path.resolve(process.cwd(), 'node_modules/swagger-ui-dist'),
+    path.resolve(process.cwd(), 'backend/node_modules/swagger-ui-dist'),
+  ];
+  const localDistDir = localDistCandidates.find((dir) => fs.existsSync(path.join(dir, 'swagger-ui.css')));
+  const rawSwaggerHtml = swaggerUi.generateHTML(openApiSpec);
+  let swaggerHtml = rawSwaggerHtml.replace(/(href|src)="\.\//g, '$1="/api/docs/');
+  let swaggerCsp: string | null = null;
+
+  if (!localDistDir) {
+    const pkgCandidate = localDistCandidates
+      .map((dir) => path.join(dir, 'package.json'))
+      .find((pkgPath) => fs.existsSync(pkgPath));
+    let swaggerDistVersion = '5.36.0';
+    if (pkgCandidate) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(pkgCandidate, 'utf8')) as { version?: string };
+        if (parsed.version) swaggerDistVersion = parsed.version;
+      } catch {
+        // Fallback to pinned swagger-ui-dist version
+      }
+    }
+    const cdnOrigin = 'https://cdn.jsdelivr.net';
+    const cdnBase = `${cdnOrigin}/npm/swagger-ui-dist@${swaggerDistVersion}`;
+    swaggerHtml = rawSwaggerHtml
+      .replace('src="./swagger-ui-init.js"', 'src="/api/docs/swagger-ui-init.js"')
+      .replace(/(href|src)="\.\//g, `$1="${cdnBase}/`);
+    swaggerCsp = [
+      "default-src 'self'",
+      `script-src 'self' ${cdnOrigin}`,
+      `style-src 'self' 'unsafe-inline' ${cdnOrigin}`,
+      `img-src 'self' data: ${cdnOrigin}`,
+      "font-src 'self' data:",
+      "connect-src 'self'",
+      "base-uri 'self'",
+      "form-action 'self'",
+      "frame-ancestors 'self'",
+    ].join('; ');
+  }
+
   app.get('/api/docs.json', (_req, res) => res.json(openApiSpec));
-  app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openApiSpec));
+  app.use('/api/docs', swaggerUi.serveWithOptions({ redirect: false }));
+  app.get('/api/docs', (_req, res) => {
+    if (swaggerCsp) {
+      res.setHeader('Content-Security-Policy', swaggerCsp);
+    }
+    res.type('html').send(swaggerHtml);
+  });
 
   const api = express.Router();
   api.use('/health', healthRouter);
