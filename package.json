@@ -1,0 +1,19 @@
+{
+  "name": "marketsphere-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MarketSphere Enterprise Multi-Vendor Commerce, Inventory & Order Management Platform",
+  "scripts": {
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:worker": "npm --prefix backend run dev:worker",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build": "npm --prefix backend run build && npm --prefix frontend run build",
+    "lint": "npm --prefix backend run lint && npm --prefix frontend run lint",
+    "typecheck": "npm --prefix backend run typecheck && npm --prefix frontend run typecheck",
+    "test:backend": "npm --prefix backend test",
+    "test:frontend": "npm --prefix frontend test",
+    "prisma:generate": "npm --prefix backend run prisma:generate",
+    "prisma:migrate": "npm --prefix backend run prisma:migrate",
+    "prisma:seed": "npm --prefix backend run prisma:seed"
+  }
+}

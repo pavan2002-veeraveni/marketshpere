@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+backend/node_modules/
+
+# Build & runtime outputs
+frontend/.next/
+frontend/out/
+backend/dist/
+backend/coverage/
+frontend/coverage/
+frontend/playwright-report/
+frontend/test-results/
+python-services/.venv/
+python-services/__pycache__/
+python-services/.pytest_cache/
+python-services/htmlcov/
+*.pyc
+*.pyo
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+backend/.env
+frontend/.env.local
+python-services/.env
+
+# Local workspace data & logs
+.local/
+logs/
+*.log
+backend/uploads/
+infrastructure/nginx/certs/*.key
+infrastructure/nginx/certs/*.crt
+infrastructure/nginx/certs/*.pfx
+infrastructure/nginx/certs/*.pem
+!infrastructure/nginx/certs/.gitkeep
+
+# OS & editor
+.DS_Store
+Thumbs.db

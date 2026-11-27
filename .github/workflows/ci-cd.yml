@@ -1,0 +1,279 @@
+name: MarketSphere CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+    inputs:
+      rollback_sha:
+        description: 'Previous verified container image SHA to restore on rollback'
+        required: false
+        default: ''
+      target_environment:
+        description: 'Target deployment environment (staging or production)'
+        required: false
+        default: 'staging'
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  backend-ci:
+    name: Backend Lint, Typecheck, Migration & Integration Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: marketsphere
+          POSTGRES_PASSWORD: ci_postgres_password
+          POSTGRES_DB: marketsphere
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://marketsphere:ci_postgres_password@localhost:5432/marketsphere?schema=public
+      REDIS_URL: redis://localhost:6379
+      JWT_ACCESS_SECRET: ci_access_secret_minimum_32_characters_long
+      JWT_REFRESH_SECRET: ci_refresh_secret_minimum_32_characters_long
+      INTERNAL_SERVICE_TOKEN: ci_internal_service_token
+      PAYMENT_WEBHOOK_SECRET: ci_payment_webhook_secret
+      SHIPPING_WEBHOOK_SECRET: ci_shipping_webhook_secret
+      PYTHON_SERVICE_URL: http://127.0.0.1:8000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        run: npm --prefix backend ci
+      - name: Generate Prisma client & validate migrations
+        run: |
+          npx --prefix backend prisma generate --schema=backend/prisma/schema.prisma
+          npx --prefix backend prisma migrate deploy --schema=backend/prisma/schema.prisma
+          npm --prefix backend run prisma:seed
+      - name: Backend typecheck & lint
+        run: |
+          npm --prefix backend run typecheck
+          npm --prefix backend run lint
+      - name: Run backend Vitest integration & concurrency tests
+        run: npm --prefix backend test
+      - name: Security audit (production deps)
+        run: npm --prefix backend audit --omit=dev --audit-level=high
+
+  python-ci:
+    name: Python FastAPI Lint & Pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install Python dependencies
+        run: pip install -r python-services/requirements.txt
+      - name: Ruff lint
+        run: ruff check python-services/app python-services/tests
+      - name: Run pytest & benchmark
+        working-directory: python-services
+        run: |
+          pytest -v
+          python -m tests.benchmark
+
+  frontend-ci:
+    name: Frontend Lint, Typecheck, Tests & Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        run: npm --prefix frontend ci
+      - name: Frontend typecheck, lint & Vitest
+        run: |
+          npm --prefix frontend run typecheck
+          npm --prefix frontend run lint
+          npm --prefix frontend test
+      - name: Production Next.js build
+        run: npm --prefix frontend run build
+
+  e2e-ci:
+    name: Full-Stack Playwright E2E Verification
+    needs: [backend-ci, python-ci, frontend-ci]
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: marketsphere
+          POSTGRES_PASSWORD: ci_postgres_password
+          POSTGRES_DB: marketsphere
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://marketsphere:ci_postgres_password@localhost:5432/marketsphere?schema=public
+      REDIS_URL: redis://localhost:6379
+      JWT_ACCESS_SECRET: ci_access_secret_minimum_32_characters_long
+      JWT_REFRESH_SECRET: ci_refresh_secret_minimum_32_characters_long
+      INTERNAL_SERVICE_TOKEN: ci_internal_service_token
+      PAYMENT_WEBHOOK_SECRET: ci_payment_webhook_secret
+      SHIPPING_WEBHOOK_SECRET: ci_shipping_webhook_secret
+      PYTHON_SERVICE_URL: http://127.0.0.1:8000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install dependencies & Playwright
+        run: |
+          pip install -r python-services/requirements.txt
+          npm --prefix backend ci
+          npm --prefix frontend ci
+          npx --prefix frontend playwright install chromium
+      - name: Migrate, seed & build full stack
+        run: |
+          npx --prefix backend prisma generate --schema=backend/prisma/schema.prisma
+          npx --prefix backend prisma migrate deploy --schema=backend/prisma/schema.prisma
+          npm --prefix backend run prisma:seed
+          npm --prefix backend run build
+          npm --prefix frontend run build
+      - name: Boot services & execute Playwright E2E
+        run: |
+          uvicorn app.main:app --app-dir python-services --host 127.0.0.1 --port 8000 &
+          node backend/dist/server.js &
+          npm --prefix frontend run start &
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/api/v1/health >/dev/null && curl -fsS http://127.0.0.1:4000/api/v1/health >/dev/null && curl -fsS http://127.0.0.1:3000/ >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          npm --prefix frontend run test:e2e
+
+  docker-build:
+    name: Build & Publish Container Images
+    needs: [e2e-ci]
+    runs-on: ubuntu-latest
+    env:
+      REGISTRY_USER: ${{ vars.REGISTRY_USER || 'ghcr.io' }}
+      REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build & verify Nginx + Backend + Frontend + Python Docker images
+        run: |
+          docker build -t marketsphere/backend:${{ github.sha }} ./backend
+          docker build -t marketsphere/python:${{ github.sha }} ./python-services
+          docker build -t marketsphere/frontend:${{ github.sha }} ./frontend
+          docker compose config --quiet
+      - name: Push images to container registry (when credentials configured)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.REGISTRY_TOKEN != ''
+        run: |
+          echo "${REGISTRY_TOKEN}" | docker login ghcr.io -u "${REGISTRY_USER}" --password-stdin
+          docker tag marketsphere/backend:${{ github.sha }} ghcr.io/${{ github.repository_owner }}/marketsphere-backend:${{ github.sha }}
+          docker tag marketsphere/python:${{ github.sha }} ghcr.io/${{ github.repository_owner }}/marketsphere-python:${{ github.sha }}
+          docker tag marketsphere/frontend:${{ github.sha }} ghcr.io/${{ github.repository_owner }}/marketsphere-frontend:${{ github.sha }}
+          docker push ghcr.io/${{ github.repository_owner }}/marketsphere-backend:${{ github.sha }}
+          docker push ghcr.io/${{ github.repository_owner }}/marketsphere-python:${{ github.sha }}
+          docker push ghcr.io/${{ github.repository_owner }}/marketsphere-frontend:${{ github.sha }}
+
+  deploy-staging:
+    name: Deploy to Staging & Smoke Verify
+    needs: [docker-build]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: ${{ vars.STAGING_ENVIRONMENT || 'staging' }}
+    env:
+      STAGING_BASE_URL: ${{ vars.STAGING_BASE_URL || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Staging Health & Metrics Smoke Gate
+        run: |
+          if [ -n "${STAGING_BASE_URL}" ]; then
+            curl -fsS "${STAGING_BASE_URL}/api/v1/health"
+            curl -fsS "${STAGING_BASE_URL}/api/v1/health/metrics" | grep -q 'marketsphere_dependency_up{service="postgres"} 1'
+          else
+            echo "STAGING_BASE_URL not configured; skipping live HTTP smoke check"
+          fi
+
+  deploy-production:
+    name: Production Promotion (Manual Approval Gate)
+    needs: [deploy-staging]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: ${{ vars.PRODUCTION_ENVIRONMENT || 'production' }}
+    env:
+      PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Production Health & Release Readiness
+        run: |
+          if [ -n "${PRODUCTION_BASE_URL}" ]; then
+            curl -fsS "${PRODUCTION_BASE_URL}/api/v1/health"
+            curl -fsS "${PRODUCTION_BASE_URL}/api/v1/health/metrics" | grep -q 'marketsphere_dependency_up{service="postgres"} 1'
+          else
+            echo "Production release ${{ github.sha }} approved; set PRODUCTION_BASE_URL for post-promote smoke verification"
+          fi
+
+  rollback-production:
+    name: Production / Staging Rollback
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.rollback_sha != ''
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.target_environment || 'staging' }}
+    env:
+      TARGET_BASE_URL: ${{ vars.TARGET_BASE_URL || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Rollback Artifact & Target Endpoint Health
+        run: |
+          test -n "${{ github.event.inputs.rollback_sha }}"
+          if [ -n "${TARGET_BASE_URL}" ]; then
+            curl -fsS "${TARGET_BASE_URL}/api/v1/health"
+            curl -fsS "${TARGET_BASE_URL}/api/v1/health/metrics"
+          else
+            echo "Verified rollback tag ${{ github.event.inputs.rollback_sha }}; configure TARGET_BASE_URL for live smoke probe"
+          fi

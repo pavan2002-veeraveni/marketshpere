@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+:root {
+  --ms-bg: #f8fafc;
+  --ms-surface: #ffffff;
+  --ms-border: #e2e8f0;
+  --ms-text: #0f172a;
+  --ms-muted: #64748b;
+  --ms-primary: #1d4ed8;
+  --ms-primary-hover: #1e40af;
+}
+
+body {
+  background-color: var(--ms-bg);
+  color: var(--ms-text);
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}

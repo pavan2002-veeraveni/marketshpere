@@ -1,0 +1,10 @@
+# MarketSphere Code Owners
+* @marketsphere-architects
+/backend/prisma/ @marketsphere-db-team @marketsphere-security
+/backend/src/modules/auth/ @marketsphere-security
+/backend/src/modules/payments/ @marketsphere-security @marketsphere-finance
+/backend/src/modules/returns/ @marketsphere-security @marketsphere-finance
+/python-services/ @marketsphere-python-team
+/frontend/ @marketsphere-frontend-team
+/infrastructure/ @marketsphere-devops
+/.github/ @marketsphere-devops
