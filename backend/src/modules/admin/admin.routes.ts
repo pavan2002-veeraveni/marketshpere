@@ -191,7 +191,7 @@ const triggerJobSchema = z.object({
       'shipping-status-callback',
       'settlement-batch',
     ]),
-    payload: z.record(z.unknown()).default({}),
+    payload: z.record(z.string(), z.unknown()).default({}),
     executeNow: z.boolean().default(true),
   }),
 });
@@ -287,7 +287,7 @@ adminRouter.put(
     z.object({
       params: z.object({ key: z.string().min(2).max(120) }),
       body: z.object({
-        value: z.record(z.unknown()),
+        value: z.record(z.string(), z.unknown()),
         description: z.string().max(255).optional(),
       }),
     }),

@@ -25,7 +25,7 @@ const createReturnSchema = z.object({
     orderId: z.string().uuid(),
     reason: z.string().trim().min(3).max(160),
     description: z.string().trim().max(2000).optional(),
-    evidenceMetadata: z.record(z.unknown()).optional(),
+    evidenceMetadata: z.record(z.string(), z.unknown()).optional(),
     items: z
       .array(
         z.object({

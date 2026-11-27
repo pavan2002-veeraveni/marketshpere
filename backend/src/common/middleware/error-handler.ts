@@ -20,7 +20,7 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
   }
 
   if (err instanceof ZodError) {
-    const details = err.errors.map((e) => ({ path: e.path.join('.'), message: e.message }));
+    const details = err.issues.map((e) => ({ path: e.path.join('.'), message: e.message }));
     sendError(req, res, 400, 'Validation failed', 'VALIDATION_ERROR', details);
     return;
   }

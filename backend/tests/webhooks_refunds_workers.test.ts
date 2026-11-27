@@ -1,12 +1,14 @@
 import crypto from 'crypto';
 import request from 'supertest';
-import { describe, expect, it, beforeAll } from 'vitest';
+import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import { BackgroundJobStatus, OrderStatus, PaymentStatus, ShipmentStatus } from '@prisma/client';
 import { createApp } from '../src/app';
 import { prisma } from '../src/common/prisma';
 import { env } from '../src/config/env';
 import { signWebhookPayload } from '../src/integrations/payment-sandbox';
 import { runWithJobTracking, workerProcessors } from '../src/workers/processors';
+import { closeQueues } from '../src/workers/queues';
+import { closeRedis } from '../src/common/redis';
 
 const app = createApp();
 
@@ -357,5 +359,10 @@ describe('MarketSphere Webhooks, Idempotency, Refunds, Partial Fulfillment & Wor
       where: { provider_providerEventId: { provider: 'SANDBOX_SHIP', providerEventId: failedShipEvtId } },
     });
     expect(recoveredRow.status).toBe('PROCESSED');
+  });
+
+  afterAll(async () => {
+    await closeQueues();
+    await closeRedis();
   });
 });

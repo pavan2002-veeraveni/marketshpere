@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import request from 'supertest';
-import { describe, expect, it, beforeAll } from 'vitest';
+import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import {
   CommissionLedgerStatus,
   OrderStatus,
@@ -12,7 +12,8 @@ import { createApp } from '../src/app';
 import { prisma } from '../src/common/prisma';
 import { env } from '../src/config/env';
 import { signWebhookPayload } from '../src/integrations/payment-sandbox';
-import { cacheDeletePrefix, cacheGetJson, cacheSetJson, pingRedis } from '../src/common/redis';
+import { cacheDeletePrefix, cacheGetJson, cacheSetJson, closeRedis, pingRedis } from '../src/common/redis';
+import { closeQueues } from '../src/workers/queues';
 import { inventoryService } from '../src/modules/inventory/inventory.service';
 
 const app = createApp();
@@ -388,5 +389,10 @@ describe('MarketSphere 10-Point End-to-End Integration Audit Suite', () => {
     if (p1Prices.length > 0 && p2Prices.length > 0) {
       expect(p1Prices[p1Prices.length - 1]!.price).toBeLessThanOrEqual(p2Prices[0]!.price);
     }
+  });
+
+  afterAll(async () => {
+    await closeQueues();
+    await closeRedis();
   });
 });

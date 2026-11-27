@@ -64,19 +64,34 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: backend/package-lock.json
-      - name: Install backend dependencies
-        run: npm --prefix backend ci
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install backend and Python service dependencies
+        run: |
+          npm --prefix backend ci
+          pip install -r python-services/requirements.txt
       - name: Generate Prisma client & validate migrations
         run: |
           npx --prefix backend prisma generate --schema=backend/prisma/schema.prisma
           npx --prefix backend prisma migrate deploy --schema=backend/prisma/schema.prisma
           npm --prefix backend run prisma:seed
-      - name: Backend typecheck & lint
+      - name: Backend typecheck, lint & build
         run: |
           npm --prefix backend run typecheck
           npm --prefix backend run lint
-      - name: Run backend Vitest integration & concurrency tests
-        run: npm --prefix backend test
+          npm --prefix backend run build
+      - name: Start Python FastAPI & run backend integration tests
+        run: |
+          trap 'kill $(jobs -p) 2>/dev/null || true' EXIT
+          uvicorn app.main:app --app-dir python-services --host 127.0.0.1 --port 8000 &
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/api/v1/health >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          npm --prefix backend test
       - name: Security audit (production deps)
         run: npm --prefix backend audit --omit=dev --audit-level=high
 
@@ -146,7 +161,6 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      NODE_ENV: test
       DATABASE_URL: postgresql://marketsphere:ci_postgres_password@localhost:5432/marketsphere?schema=public
       REDIS_URL: redis://localhost:6379
       JWT_ACCESS_SECRET: ci_access_secret_minimum_32_characters_long
@@ -155,6 +169,7 @@ jobs:
       PAYMENT_WEBHOOK_SECRET: ci_payment_webhook_secret
       SHIPPING_WEBHOOK_SECRET: ci_shipping_webhook_secret
       PYTHON_SERVICE_URL: http://127.0.0.1:8000
+      CORS_ORIGIN: http://localhost:3000,http://127.0.0.1:3000
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -172,19 +187,20 @@ jobs:
           pip install -r python-services/requirements.txt
           npm --prefix backend ci
           npm --prefix frontend ci
-          npx --prefix frontend playwright install chromium
+          npx --prefix frontend playwright install --with-deps chromium
       - name: Migrate, seed & build full stack
         run: |
           npx --prefix backend prisma generate --schema=backend/prisma/schema.prisma
           npx --prefix backend prisma migrate deploy --schema=backend/prisma/schema.prisma
           npm --prefix backend run prisma:seed
           npm --prefix backend run build
-          npm --prefix frontend run build
+          NODE_ENV=production npm --prefix frontend run build
       - name: Boot services & execute Playwright E2E
         run: |
+          trap 'kill $(jobs -p) 2>/dev/null || true' EXIT
           uvicorn app.main:app --app-dir python-services --host 127.0.0.1 --port 8000 &
-          node backend/dist/server.js &
-          npm --prefix frontend run start &
+          NODE_ENV=development node backend/dist/server.js &
+          NODE_ENV=production npm --prefix frontend run start &
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8000/api/v1/health >/dev/null && curl -fsS http://127.0.0.1:4000/api/v1/health >/dev/null && curl -fsS http://127.0.0.1:3000/ >/dev/null; then
               break

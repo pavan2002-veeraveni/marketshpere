@@ -61,7 +61,7 @@ export const createProductSchema = z.object({
       .array(
         z.object({
           name: z.string().trim().min(1).max(150),
-          optionValues: z.record(z.string()).default({}),
+          optionValues: z.record(z.string(), z.string()).default({}),
           skuCode: z.string().trim().min(2).max(80),
           price: z.string().regex(/^\d+(\.\d{1,2})?$/),
           compareAtPrice: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
@@ -90,7 +90,7 @@ export const addSkuSchema = z.object({
   params: z.object({ productId: z.string().uuid() }),
   body: z.object({
     variantName: z.string().trim().min(1).max(150),
-    optionValues: z.record(z.string()).default({}),
+    optionValues: z.record(z.string(), z.string()).default({}),
     skuCode: z.string().trim().min(2).max(80),
     price: z.string().regex(/^\d+(\.\d{1,2})?$/),
     compareAtPrice: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
