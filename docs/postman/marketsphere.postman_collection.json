@@ -1,0 +1,177 @@
+{
+  "info": {
+    "name": "MarketSphere Enterprise Commerce API v1",
+    "_postman_id": "a6f7c210-1001-4d8e-b711-000000000001",
+    "description": "Complete REST collection covering Auth, Sellers, Catalog, Inventory, Cart, Checkout, Orders, Payments, Webhooks, Shipping, Returns, Refunds, Commissions, Settlements, Support & Admin.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:4000/api/v1" },
+    { "key": "accessToken", "value": "" },
+    { "key": "refreshToken", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "System & Health",
+      "item": [
+        { "name": "Health Check", "request": { "method": "GET", "url": "{{baseUrl}}/health" } },
+        { "name": "Prometheus Metrics", "request": { "method": "GET", "url": "{{baseUrl}}/health/metrics" } }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register Customer",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\":\"newbuyer@marketsphere.test\",\"password\":\"SecurePass#2026\",\"firstName\":\"New\",\"lastName\":\"Buyer\",\"accountType\":\"CUSTOMER\"}"
+            }
+          }
+        },
+        {
+          "name": "Login (Customer)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\":\"customer@marketsphere.test\",\"password\":\"MarketSphere#2026\"}"
+            }
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/refresh",
+            "body": { "mode": "raw", "raw": "{\"refreshToken\":\"{{refreshToken}}\"}" }
+          }
+        },
+        {
+          "name": "Current User (/me)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": "{{baseUrl}}/auth/me"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Catalog & Discovery",
+      "item": [
+        { "name": "List Categories", "request": { "method": "GET", "url": "{{baseUrl}}/categories" } },
+        { "name": "Search & Filter Products", "request": { "method": "GET", "url": "{{baseUrl}}/products?search=Apex&inStock=true&page=1&limit=10" } },
+        { "name": "Product Detail", "request": { "method": "GET", "url": "{{baseUrl}}/products/apex-studio-pro-anc-headphones" } },
+        { "name": "Product Recommendations", "request": { "method": "GET", "url": "{{baseUrl}}/products/recommendations" } }
+      ]
+    },
+    {
+      "name": "Cart & Checkout",
+      "item": [
+        {
+          "name": "Get Cart",
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }], "url": "{{baseUrl}}/cart" }
+        },
+        {
+          "name": "Add Item to Cart",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }, { "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/cart/items",
+            "body": { "mode": "raw", "raw": "{\"skuId\":\"<sku-uuid>\",\"quantity\":1}" }
+          }
+        },
+        {
+          "name": "Checkout (Concurrency-Safe Reservation)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Idempotency-Key", "value": "chk-demo-001" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/checkout",
+            "body": { "mode": "raw", "raw": "{\"discountCode\":\"WELCOME10\"}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Payments, Webhooks, Shipping & Returns",
+      "item": [
+        {
+          "name": "Confirm Sandbox Payment",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }, { "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/payments/<payment-uuid>/confirm-sandbox",
+            "body": { "mode": "raw", "raw": "{\"outcome\":\"SUCCEED\"}" }
+          }
+        },
+        {
+          "name": "Payment Webhook (HMAC Signed)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "X-Marketplace-Signature", "value": "<hmac-sha256>" }, { "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/webhooks/payments",
+            "body": { "mode": "raw", "raw": "{\"eventId\":\"evt_001\",\"eventType\":\"PAYMENT_SUCCEEDED\",\"providerPaymentId\":\"pay_sbx_123\"}" }
+          }
+        },
+        {
+          "name": "Create Shipment",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }, { "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/shipments",
+            "body": { "mode": "raw", "raw": "{\"orderId\":\"<order-uuid>\"}" }
+          }
+        },
+        {
+          "name": "Request Return",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }, { "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/returns",
+            "body": { "mode": "raw", "raw": "{\"orderId\":\"<order-uuid>\",\"reason\":\"Defective unit\",\"items\":[{\"orderItemId\":\"<order-item-uuid>\",\"quantity\":1}]}" }
+          }
+        },
+        {
+          "name": "Process Refund (Idempotent)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }, { "key": "Idempotency-Key", "value": "ref-001" }, { "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/refunds",
+            "body": { "mode": "raw", "raw": "{\"orderId\":\"<order-uuid>\",\"amount\":\"50.00\",\"reason\":\"Approved return\"}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Seller, Warehouse, Support & Admin",
+      "item": [
+        { "name": "Seller Analytics", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }], "url": "{{baseUrl}}/sellers/me/analytics" } },
+        { "name": "Bulk Feed Import", "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }, { "key": "Content-Type", "value": "application/json" }], "url": "{{baseUrl}}/seller/products/feed-import", "body": { "mode": "raw", "raw": "{\"format\":\"csv\",\"content\":\"title,sku_code,price,category_slug,quantity\\nDemo Item,DM-01,25.00,accessories,5\"}" } } },
+        { "name": "Inventory List", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }], "url": "{{baseUrl}}/inventory" } },
+        { "name": "Release Expired Reservations", "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }], "url": "{{baseUrl}}/inventory/reservations/release-expired" } },
+        { "name": "Commission Rules", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }], "url": "{{baseUrl}}/commissions/rules" } },
+        { "name": "Commission Ledger", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }], "url": "{{baseUrl}}/commissions/ledger" } },
+        { "name": "Generate Settlements", "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }, { "key": "Content-Type", "value": "application/json" }], "url": "{{baseUrl}}/settlements/generate", "body": { "mode": "raw", "raw": "{}" } } },
+        { "name": "Support Cases", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }], "url": "{{baseUrl}}/support/cases" } },
+        { "name": "Disputes", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }], "url": "{{baseUrl}}/disputes" } },
+        { "name": "Admin Analytics", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }], "url": "{{baseUrl}}/admin/analytics" } },
+        { "name": "Admin Audit Logs", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }], "url": "{{baseUrl}}/admin/audit-logs" } },
+        { "name": "Trigger Worker Job", "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }, { "key": "Content-Type", "value": "application/json" }], "url": "{{baseUrl}}/admin/jobs/trigger", "body": { "mode": "raw", "raw": "{\"jobName\":\"outbox-dispatch\",\"executeNow\":true}" } } },
+        { "name": "Replay Background Job", "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }, { "key": "Content-Type", "value": "application/json" }], "url": "{{baseUrl}}/admin/jobs/<job-uuid>/replay", "body": { "mode": "raw", "raw": "{\"executeNow\":true}" } } },
+        { "name": "Request Password Reset", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "url": "{{baseUrl}}/auth/password-reset/request", "body": { "mode": "raw", "raw": "{\"email\":\"customer@marketsphere.test\"}" } } }
+      ]
+    }
+  ]
+}
