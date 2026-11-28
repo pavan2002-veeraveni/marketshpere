@@ -201,17 +201,36 @@ jobs:
       - name: Boot services & execute Playwright E2E
         run: |
           trap 'kill $(jobs -p) 2>/dev/null || true' EXIT
-          uvicorn app.main:app --app-dir python-services --host 127.0.0.1 --port 8000 &
-          NODE_ENV=development node backend/dist/server.js &
-          NODE_ENV=development node backend/dist/worker.js &
-          NODE_ENV=production npm --prefix frontend run start &
+          uvicorn app.main:app --app-dir python-services --host 127.0.0.1 --port 8000 >/tmp/python.log 2>&1 &
+          NODE_ENV=development node backend/dist/server.js >/tmp/backend.log 2>&1 &
+          NODE_ENV=development node backend/dist/worker.js >/tmp/worker.log 2>&1 &
+          NODE_ENV=production npm --prefix frontend run start >/tmp/frontend.log 2>&1 &
+          READY=0
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8000/api/v1/health >/dev/null && curl -fsS http://127.0.0.1:4000/api/v1/health >/dev/null && curl -fsS http://127.0.0.1:3000/ >/dev/null; then
+              READY=1
               break
             fi
             sleep 1
           done
-          npm --prefix frontend run test:e2e
+          if [ "$READY" -ne 1 ]; then
+            echo "Services failed readiness probe"
+            cat /tmp/python.log /tmp/backend.log /tmp/worker.log /tmp/frontend.log || true
+            exit 1
+          fi
+          npm --prefix frontend run test:e2e -- --reporter=list || {
+            echo "=== Playwright failed; server logs ==="
+            cat /tmp/python.log /tmp/backend.log /tmp/worker.log /tmp/frontend.log || true
+            exit 1
+          }
+      - name: Upload Playwright debug artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-e2e-debug
+          path: |
+            frontend/test-results/
+            /tmp/*.log
 
   docker-build:
     name: Build & Publish Container Images
