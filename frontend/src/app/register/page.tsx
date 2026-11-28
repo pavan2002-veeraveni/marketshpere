@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useDispatch } from 'react-redux';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { AppShell } from '@/components/layout/AppShell';
@@ -36,7 +36,7 @@ export default function RegisterPage() {
 
   const {
     register,
-    watch,
+    control,
     handleSubmit,
     formState: { errors },
   } = useForm<RegisterForm>({
@@ -44,7 +44,7 @@ export default function RegisterPage() {
     defaultValues: { accountType: 'CUSTOMER' },
   });
 
-  const accountType = watch('accountType');
+  const accountType = useWatch({ control, name: 'accountType' });
 
   async function onSubmit(values: RegisterForm) {
     setSubmitting(true);
@@ -52,7 +52,7 @@ export default function RegisterPage() {
       const res = await apiClient.post<
         ApiEnvelope<{ user: UserProfile; accessToken: string; refreshToken: string }>
       >('/auth/register', values);
-      tokenStorage.setTokens(res.data.data.accessToken, res.data.data.refreshToken);
+      tokenStorage.setTokens(res.data.data.accessToken);
       dispatch(setUser(res.data.data.user));
       dispatch(pushToast({ type: 'success', message: 'Account created!' }));
       router.push(values.accountType === 'SELLER' ? '/seller' : '/');

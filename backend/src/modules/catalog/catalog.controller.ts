@@ -199,6 +199,9 @@ export const catalogController = {
         content,
         req.body.warehouseId,
         req.requestId,
+        req.file
+          ? { buffer: req.file.buffer, filename: req.file.originalname, mimeType: req.file.mimetype }
+          : undefined,
       );
       return sendSuccess(req, res, report, 'Catalog feed processed');
     } catch (err) {

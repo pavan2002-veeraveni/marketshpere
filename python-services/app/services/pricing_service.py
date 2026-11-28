@@ -1,4 +1,5 @@
 from decimal import Decimal
+
 from app.core.config import settings
 from app.models.schemas import (
     CommissionCalculateRequest,
@@ -35,7 +36,7 @@ def calculate_pricing(req: PricingCalculateRequest) -> PricingCalculateResponse:
             promo_note = f"Coupon {promo.code} requires minimum subtotal {fmt2(promo.min_cart_amount)}"
         else:
             if promo.discount_type == "PERCENTAGE":
-                raw_disc = q2(eligible_subtotal * (promo.value / Decimal("100")))
+                raw_disc = q2(eligible_subtotal * (promo.value / Decimal(100)))
             else:
                 raw_disc = min(eligible_subtotal, q2(promo.value))
 

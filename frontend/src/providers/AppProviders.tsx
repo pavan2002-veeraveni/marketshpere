@@ -5,25 +5,40 @@ import { Provider, useDispatch, useSelector } from 'react-redux';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { X, CheckCircle2, AlertCircle, Info } from 'lucide-react';
 import { clearUser, dismissToast, RootState, setUser, store } from '@/store';
-import { apiClient, tokenStorage } from '@/lib/api-client';
+import { apiClient, refreshAccessTokenSingleFlight, tokenStorage } from '@/lib/api-client';
 import { ApiEnvelope, UserProfile } from '@/types/api';
 
 function SessionBootstrap({ children }: { children: React.ReactNode }) {
   const dispatch = useDispatch();
 
   useEffect(() => {
-    const token = tokenStorage.getAccess();
-    if (!token) {
-      dispatch(clearUser());
-      return;
-    }
-    apiClient
-      .get<ApiEnvelope<UserProfile>>('/auth/me')
-      .then((res) => dispatch(setUser(res.data.data)))
-      .catch(() => {
+    let active = true;
+    async function restoreSession() {
+      let token = tokenStorage.getAccess();
+      if (!token) {
+        // Silent refresh via HttpOnly ms_refresh_token + Double-Submit CSRF header
+        if (typeof document !== 'undefined' && document.cookie.includes('ms_csrf_token=')) {
+          token = await refreshAccessTokenSingleFlight();
+        }
+      }
+      if (!token) {
+        if (active && !store.getState().auth.hydrated) {
+          dispatch(clearUser());
+        }
+        return;
+      }
+      try {
+        const res = await apiClient.get<ApiEnvelope<UserProfile>>('/auth/me');
+        if (active) dispatch(setUser(res.data.data));
+      } catch {
         tokenStorage.clear();
-        dispatch(clearUser());
-      });
+        if (active) dispatch(clearUser());
+      }
+    }
+    void restoreSession();
+    return () => {
+      active = false;
+    };
   }, [dispatch]);
 
   return <>{children}</>;

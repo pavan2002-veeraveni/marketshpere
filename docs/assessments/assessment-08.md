@@ -17,4 +17,7 @@ Integrate sandbox adapters for Payments, Shipping, Email, Object Storage, and Py
 - Duplicate and over-limit refunds blocked (`409` / idempotent key replay).
 - Failed payment retry, partial multi-seller fulfillment, and signed shipping failure webhook callbacks verified end-to-end.
 - Async shipping callback queueing (`POST /api/v1/webhooks/shipping?async=true` -> `202`) + admin tracked replay (`executeNow: true`) + async feed worker execution via Python FastAPI + failed `SANDBOX_SHIP` and `SANDBOX_PAY` webhook recovery (`5/5` in `webhooks_refunds_workers.test.ts`) verified against PostgreSQL.
-- Fixed `shipping.routes.ts` & `payments.routes.ts` webhook claim handling so `WebhookEventStatus.FAILED`, `retryCount`, and `lastError` persist outside rolled-back downstream transactions (`6/6` in `incidents.test.ts`).
+- Fixed `shipping.routes.ts` & `payments.routes.ts` webhook claim handling so `WebhookEventStatus.FAILED`, `retryCount`, and `lastError` persist outside rolled-back downstream transactions (`8/8` in `incidents.test.ts`), and verified live Memurai Redis (`6379`) BullMQ `Worker` execution including 3-failure `DEAD_LETTER` escalation & replay (`modules_coverage.test.ts`, `incidents.test.ts`, `webhooks 97.67%`, `workers 79.72%`).
+
+## Known Limitations
+- External Payment (`pay_sbx_*`), Shipping (`SBX-TRK-*`), Email (`emailSandboxAdapter`), and Local/Tmp Disk (`./uploads`) remain deterministic sandbox/local adapters in the absence of live Stripe/Shippo/SMTP/S3 cloud credentials.

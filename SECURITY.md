@@ -2,7 +2,8 @@
 
 ## 1. Authentication & Session Security
 - **Password Hashing:** `bcryptjs` with cost factor 12 (salted one-way hash; passwords never logged or returned).
-- **Access Tokens:** Short-lived JWTs (`15m`) signed with `JWT_ACCESS_SECRET`.
+- **Access Tokens & Double-Submit CSRF:** Short-lived JWTs (`15m`) signed with `JWT_ACCESS_SECRET` are retained strictly in frontend JavaScript memory (never `sessionStorage`/`localStorage`), bootstrapped across page reloads via silent cookie refresh. Login/refresh issue a companion `ms_csrf_token` cookie alongside `HttpOnly` `ms_refresh_token`, and cookie-authenticated `/auth/refresh` & `/auth/logout` verify `X-CSRF-Token` via `crypto.timingSafeEqual`.
+- **Content Security Policy (CSP):** Global Helmet CSP on Express (`defaultSrc: 'none'`, `frameAncestors: 'none'`, route-scoped policy on `/api/docs`) and security/CSP response headers configured in `frontend/next.config.ts`.
 - **Refresh Token Rotation & Reuse Detection:** Cryptographically random 48-byte tokens stored strictly as SHA-256 hashes in `refresh_tokens` grouped by `family_id`. Presenting a previously rotated/revoked refresh token revokes the entire token family immediately (`401 REFRESH_TOKEN_REUSED`).
 - **Rate Limiting:** Global API rate limiter (`300 req/min`) and dedicated strict authentication limiter (`25 attempts / 15 min` on login, registration, and password reset).
 

@@ -8,21 +8,25 @@ const LEGACY_REFRESH_KEY = 'ms_refresh_token';
 
 let inMemoryAccessToken: string | null = null;
 
+function readCookie(name: string): string | null {
+  if (typeof document === 'undefined') return null;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = document.cookie.match(new RegExp(`(?:^|; )${escaped}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]!) : null;
+}
+
 export const tokenStorage = {
   getAccess(): string | null {
-    if (inMemoryAccessToken) return inMemoryAccessToken;
-    if (typeof window === 'undefined') return null;
-    inMemoryAccessToken = window.sessionStorage.getItem(ACCESS_KEY);
     return inMemoryAccessToken;
   },
   getRefresh(): string | null {
     // Refresh token is managed strictly as an HttpOnly cookie by /api/v1/auth
     return null;
   },
-  setTokens(accessToken: string, _refreshToken?: string) {
+  setTokens(accessToken: string) {
     inMemoryAccessToken = accessToken;
     if (typeof window === 'undefined') return;
-    window.sessionStorage.setItem(ACCESS_KEY, accessToken);
+    window.sessionStorage.removeItem(ACCESS_KEY);
     window.localStorage.removeItem(ACCESS_KEY);
     window.localStorage.removeItem(LEGACY_REFRESH_KEY);
   },
@@ -49,10 +53,41 @@ apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   if (token && config.headers) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+  const csrfToken = readCookie('ms_csrf_token');
+  if (csrfToken && config.headers) {
+    config.headers['X-CSRF-Token'] = csrfToken;
+  }
   return config;
 });
 
 let refreshPromise: Promise<string | null> | null = null;
+
+export async function refreshAccessTokenSingleFlight(): Promise<string | null> {
+  if (!refreshPromise) {
+    const csrfToken = readCookie('ms_csrf_token');
+    refreshPromise = axios
+      .post<ApiEnvelope<{ accessToken: string }>>(
+        `${baseURL}/auth/refresh`,
+        {},
+        {
+          withCredentials: true,
+          headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : undefined,
+        },
+      )
+      .then((res) => {
+        tokenStorage.setTokens(res.data.data.accessToken);
+        return res.data.data.accessToken;
+      })
+      .catch(() => {
+        tokenStorage.clear();
+        return null;
+      })
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+  return refreshPromise;
+}
 
 apiClient.interceptors.response.use(
   (response) => response,
@@ -60,26 +95,7 @@ apiClient.interceptors.response.use(
     const original = error.config as (InternalAxiosRequestConfig & { _retry?: boolean }) | undefined;
     if (error.response?.status === 401 && original && !original._retry && !original.url?.includes('/auth/refresh')) {
       original._retry = true;
-      if (!refreshPromise) {
-        refreshPromise = axios
-          .post<ApiEnvelope<{ accessToken: string }>>(
-            `${baseURL}/auth/refresh`,
-            {},
-            { withCredentials: true },
-          )
-          .then((res) => {
-            tokenStorage.setTokens(res.data.data.accessToken);
-            return res.data.data.accessToken;
-          })
-          .catch(() => {
-            tokenStorage.clear();
-            return null;
-          })
-          .finally(() => {
-            refreshPromise = null;
-          });
-      }
-      const nextToken = await refreshPromise;
+      const nextToken = await refreshAccessTokenSingleFlight();
       if (nextToken && original.headers) {
         original.headers.Authorization = `Bearer ${nextToken}`;
         return apiClient(original);

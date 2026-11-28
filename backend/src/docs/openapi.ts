@@ -192,7 +192,30 @@ export const openApiSpec = {
         },
       }),
     },
+    '/users/me/addresses/{addressId}': {
+      patch: op({
+        tags: ['Users'],
+        auth: 'bearer',
+        summary: 'Update shipping address',
+        pathParams: ['addressId'],
+        bodyProps: { label: { type: 'string' }, recipientName: { type: 'string' }, line1: { type: 'string' }, isDefault: { type: 'boolean' } },
+      }),
+      delete: op({
+        tags: ['Users'],
+        auth: 'bearer',
+        summary: 'Delete shipping address',
+        pathParams: ['addressId'],
+      }),
+    },
     '/users/me/notifications': { get: op({ tags: ['Users'], auth: 'bearer', summary: 'List account notifications' }) },
+    '/users/me/notifications/{notificationId}/read': {
+      patch: op({
+        tags: ['Users'],
+        auth: 'bearer',
+        summary: 'Mark notification as read',
+        pathParams: ['notificationId'],
+      }),
+    },
     '/categories': {
       get: op({ tags: ['Catalog'], summary: 'List active categories' }),
       post: op({
@@ -202,6 +225,21 @@ export const openApiSpec = {
         successStatus: '201',
         requiredBody: ['name'],
         bodyProps: { name: { type: 'string' }, slug: { type: 'string' }, description: { type: 'string' } },
+      }),
+    },
+    '/categories/{categoryId}': {
+      patch: op({
+        tags: ['Catalog'],
+        auth: 'bearer',
+        summary: 'Admin update category',
+        pathParams: ['categoryId'],
+        bodyProps: { name: { type: 'string' }, slug: { type: 'string' }, isActive: { type: 'boolean' } },
+      }),
+      delete: op({
+        tags: ['Catalog'],
+        auth: 'bearer',
+        summary: 'Admin deactivate category',
+        pathParams: ['categoryId'],
       }),
     },
     '/products': {
@@ -219,6 +257,9 @@ export const openApiSpec = {
           { name: 'sortBy', type: 'string' },
         ],
       }),
+    },
+    '/products/recommendations': {
+      get: op({ tags: ['Catalog'], summary: 'Personalized/cold-start storefront recommendations backed by FastAPI' }),
     },
     '/products/{slugOrId}': {
       get: op({ tags: ['Catalog'], summary: 'Get product detail, SKUs, warehouse availability & approved reviews', pathParams: ['slugOrId'] }),
@@ -242,7 +283,27 @@ export const openApiSpec = {
         },
       }),
     },
-    '/sellers/me': { get: op({ tags: ['Sellers'], auth: 'bearer', summary: 'Get own seller profile & onboarding state' }) },
+    '/sellers/me': {
+      get: op({ tags: ['Sellers'], auth: 'bearer', summary: 'Get own seller profile & onboarding state' }),
+      patch: op({
+        tags: ['Sellers'],
+        auth: 'bearer',
+        summary: 'Update own seller profile & store policies',
+        bodyProps: { storeName: { type: 'string' }, supportEmail: { type: 'string' }, returnPolicy: { type: 'string' }, bio: { type: 'string' } },
+      }),
+    },
+    '/sellers/me/documents': {
+      post: op({
+        tags: ['Sellers'],
+        auth: 'bearer',
+        summary: 'Upload magic-byte validated seller verification document',
+        successStatus: '201',
+        bodyProps: { step: { type: 'string' }, documentType: { type: 'string' }, submitForReview: { type: 'boolean' } },
+      }),
+    },
+    '/sellers/me/resubmit': {
+      post: op({ tags: ['Sellers'], auth: 'bearer', summary: 'Resubmit rejected seller onboarding for admin review' }),
+    },
     '/sellers/me/analytics': { get: op({ tags: ['Sellers'], auth: 'bearer', summary: 'Seller GMV, net earnings & top products' }) },
     '/sellers': { get: op({ tags: ['Sellers'], auth: 'bearer', summary: 'Admin list all sellers' }) },
     '/sellers/{sellerId}/status': {
@@ -269,6 +330,25 @@ export const openApiSpec = {
       get: op({ tags: ['Seller Catalog'], auth: 'bearer', summary: 'Get own seller product (isolated)', pathParams: ['productId'] }),
       patch: op({ tags: ['Seller Catalog'], auth: 'bearer', summary: 'Update own seller product', pathParams: ['productId'], bodyProps: { title: { type: 'string' }, status: { type: 'string' } } }),
       delete: op({ tags: ['Seller Catalog'], auth: 'bearer', summary: 'Archive own seller product', pathParams: ['productId'] }),
+    },
+    '/seller/products/{productId}/images': {
+      post: op({
+        tags: ['Seller Catalog'],
+        auth: 'bearer',
+        summary: 'Upload verified product image (JPEG/PNG/WEBP)',
+        pathParams: ['productId'],
+        successStatus: '201',
+      }),
+    },
+    '/seller/products/{productId}/skus': {
+      post: op({
+        tags: ['Seller Catalog'],
+        auth: 'bearer',
+        summary: 'Add variant & SKU with initial warehouse stock',
+        pathParams: ['productId'],
+        successStatus: '201',
+        bodyProps: { variantName: { type: 'string' }, skuCode: { type: 'string' }, price: { type: 'string' }, initialStock: { type: 'integer' } },
+      }),
     },
     '/seller/products/feed-import': {
       post: op({
@@ -314,6 +394,24 @@ export const openApiSpec = {
         summary: 'Create promotion code',
         successStatus: '201',
         bodyProps: { code: { type: 'string' }, discountType: { type: 'string' }, value: { type: 'string' } },
+      }),
+    },
+    '/discounts/{discountId}': {
+      patch: op({
+        tags: ['Promotions'],
+        auth: 'bearer',
+        summary: 'Update discount status, expiry, or usage limit',
+        pathParams: ['discountId'],
+        bodyProps: { isActive: { type: 'boolean' }, expiresAt: { type: 'string' }, usageLimitTotal: { type: 'integer' } },
+      }),
+    },
+    '/discounts/validate': {
+      post: op({
+        tags: ['Promotions'],
+        auth: 'bearer',
+        summary: 'Validate promotion code against cart subtotal & user eligibility',
+        requiredBody: ['code', 'cartSubtotal'],
+        bodyProps: { code: { type: 'string' }, cartSubtotal: { type: 'string' } },
       }),
     },
     '/cart': { get: op({ tags: ['Cart'], auth: 'bearer', summary: 'Get server-priced cart', queryParams: [{ name: 'discountCode', type: 'string' }] }) },
@@ -453,6 +551,11 @@ export const openApiSpec = {
       }),
     },
     '/products/{productId}/reviews': {
+      get: op({
+        tags: ['Reviews'],
+        summary: 'List approved reviews for a product',
+        pathParams: ['productId'],
+      }),
       post: op({
         tags: ['Reviews'],
         auth: 'bearer',
@@ -463,9 +566,36 @@ export const openApiSpec = {
         bodyProps: { orderId: { type: 'string' }, rating: { type: 'integer' }, title: { type: 'string' }, comment: { type: 'string' } },
       }),
     },
+    '/reviews/{reviewId}/moderate': {
+      patch: op({
+        tags: ['Reviews'],
+        auth: 'bearer',
+        summary: 'Admin/Support approve or hide review',
+        pathParams: ['reviewId'],
+        requiredBody: ['moderationStatus'],
+        bodyProps: { moderationStatus: { type: 'string' } },
+      }),
+    },
     '/commissions/rules': {
       get: op({ tags: ['Commissions'], auth: 'bearer', summary: 'List commission rules (seller-isolated for non-admin sellers)' }),
       post: op({ tags: ['Commissions'], auth: 'bearer', summary: 'Admin create commission rule', successStatus: '201', bodyProps: { name: { type: 'string' }, percentageRate: { type: 'string' } } }),
+    },
+    '/commissions/rules/{ruleId}': {
+      patch: op({
+        tags: ['Commissions'],
+        auth: 'bearer',
+        summary: 'Admin update commission rule',
+        pathParams: ['ruleId'],
+        bodyProps: { isActive: { type: 'boolean' }, percentageRate: { type: 'string' }, fixedAmount: { type: 'string' }, priority: { type: 'integer' } },
+      }),
+    },
+    '/commissions/calculate': {
+      post: op({
+        tags: ['Commissions'],
+        auth: 'bearer',
+        summary: 'Calculate commission preview via Python FastAPI',
+        bodyProps: { items: { type: 'object' } },
+      }),
     },
     '/commissions/ledger': { get: op({ tags: ['Commissions'], auth: 'bearer', summary: 'View Decimal-exact commission ledger' }) },
     '/settlements': { get: op({ tags: ['Settlements'], auth: 'bearer', summary: 'View seller settlement statements' }) },
@@ -483,6 +613,15 @@ export const openApiSpec = {
     '/support/cases': {
       get: op({ tags: ['Support'], auth: 'bearer', summary: 'List support tickets' }),
       post: op({ tags: ['Support'], auth: 'bearer', summary: 'Open support case', successStatus: '201', bodyProps: { subject: { type: 'string' }, initialMessage: { type: 'string' } } }),
+    },
+    '/support/cases/{caseId}': {
+      patch: op({
+        tags: ['Support'],
+        auth: 'bearer',
+        summary: 'Update support case status, priority, or assignee',
+        pathParams: ['caseId'],
+        bodyProps: { status: { type: 'string' }, priority: { type: 'string' }, assignedAgentId: { type: 'string' } },
+      }),
     },
     '/support/cases/{caseId}/notes': {
       post: op({ tags: ['Support'], auth: 'bearer', summary: 'Add public or internal agent note to support case', pathParams: ['caseId'], successStatus: '201', bodyProps: { body: { type: 'string' }, isInternal: { type: 'boolean' } } }),

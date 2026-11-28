@@ -16,5 +16,5 @@ Establish clean Git version control isolation, feature branching conventions, PR
 - Documented Git branching (`main`, `develop`, `feat/*`, `fix/*`) and migration review policies.
 
 ## Known Limitations
-- Clean local commit history established on `main` (verifying `.env`, `.local/`, `node_modules/`, `.venv/`, `dist/`, `.next/`, `coverage/`, and TLS private key/cert artifacts remain excluded by `.gitignore`).
-- Remote branch protection rules, feature-branch PRs, and GitHub push remain unexecuted locally (local repository commits remain unpublished per safety rules).
+- Clean commit history established inside `Marketsphere` (`main` pushed to `https://github.com/pavan2002-veeraveni/marketshpere.git`), `*.tsbuildinfo` added to `.gitignore` with `frontend/tsconfig.tsbuildinfo` untracked, and `.env*` / `.local/` / TLS keys/certs verified excluded.
+- `CODEOWNERS` retains placeholder organizational team handles (`@marketsphere-*`); multi-reviewer PR approvals require human collaborators on GitHub.

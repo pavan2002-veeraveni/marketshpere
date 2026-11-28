@@ -1,7 +1,14 @@
 """Benchmark script for Python FastAPI pricing, feed processing, and recommendations."""
+
 import time
 from decimal import Decimal
-from app.models.schemas import CatalogItemVector, PricingCalculateRequest, PricingItemInput, RecommendationRequest
+
+from app.models.schemas import (
+    CatalogItemVector,
+    PricingCalculateRequest,
+    PricingItemInput,
+    RecommendationRequest,
+)
 from app.services.feed_service import process_product_feed
 from app.services.pricing_service import calculate_pricing
 from app.services.recommendation_service import generate_recommendations

@@ -2,8 +2,9 @@ import csv
 import io
 import json
 import re
+from collections.abc import Iterable
 from decimal import Decimal, InvalidOperation
-from typing import Iterable
+
 from app.models.schemas import (
     FeedProcessResponse,
     FeedRowError,
@@ -44,7 +45,7 @@ def _iter_rows(fmt: str, content: str) -> Iterable[tuple[int, dict]]:
             raise ValueError("JSON feed root must be an array of product objects")
         for idx, row in enumerate(parsed, start=1):
             if not isinstance(row, dict):
-                raise ValueError(f"Row {idx} must be a JSON object")
+                raise TypeError(f"Row {idx} must be a JSON object")
             yield idx, row
 
 
@@ -89,7 +90,7 @@ def process_product_feed(fmt: str, content: str) -> FeedProcessResponse:
 
             try:
                 price_dec = Decimal(price_raw)
-                if price_dec <= Decimal("0"):
+                if price_dec <= Decimal(0):
                     raise InvalidOperation()
             except (InvalidOperation, ValueError):
                 errors.append(FeedRowError(row=row_num, sku_code=sku_code, message=f"Invalid positive price '{price_raw}'"))
@@ -115,7 +116,7 @@ def process_product_feed(fmt: str, content: str) -> FeedProcessResponse:
                     brand=brand,
                 )
             )
-    except (json.JSONDecodeError, ValueError, csv.Error) as exc:
+    except (json.JSONDecodeError, ValueError, TypeError, csv.Error) as exc:
         errors.append(FeedRowError(row=0, message=f"Malformed {fmt.upper()} feed: {exc}"))
         if total_rows == 0:
             total_rows = 1

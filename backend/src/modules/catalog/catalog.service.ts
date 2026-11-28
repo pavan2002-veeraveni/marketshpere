@@ -679,8 +679,16 @@ export const catalogService = {
     content: string,
     warehouseId?: string,
     requestId?: string,
+    uploadedFile?: { buffer: Buffer; filename: string; mimeType: string },
   ) {
-    const processed = await pythonClient.processFeed({ format, content, requestId });
+    const processed = uploadedFile
+      ? await pythonClient.processFeedUpload({
+          buffer: uploadedFile.buffer,
+          filename: uploadedFile.filename,
+          mimeType: uploadedFile.mimeType,
+          requestId,
+        })
+      : await pythonClient.processFeed({ format, content, requestId });
     const defaultCategory = await prisma.category.findFirst({ where: { isActive: true } });
     const warehouse = warehouseId
       ? await prisma.warehouse.findUnique({ where: { id: warehouseId } })

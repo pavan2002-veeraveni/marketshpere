@@ -1,7 +1,7 @@
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal
-from pydantic import BaseModel, Field, field_validator
 
+from pydantic import BaseModel, Field, field_validator
 
 TWO_PLACES = Decimal("0.01")
 
@@ -20,14 +20,14 @@ class PricingItemInput(BaseModel):
     sku_code: str
     seller_id: str
     category_id: str
-    unit_price: Decimal = Field(..., ge=Decimal("0"))
+    unit_price: Decimal = Field(..., ge=Decimal(0))
     quantity: int = Field(..., gt=0, le=1000)
 
 
 class PromotionInput(BaseModel):
     code: str
     discount_type: Literal["PERCENTAGE", "FIXED"]
-    value: Decimal = Field(..., gt=Decimal("0"))
+    value: Decimal = Field(..., gt=Decimal(0))
     seller_id: str | None = None
     min_cart_amount: Decimal | None = None
     max_discount_amount: Decimal | None = None
@@ -35,7 +35,7 @@ class PromotionInput(BaseModel):
 
 class PricingCalculateRequest(BaseModel):
     currency: str = Field(default="USD", min_length=3, max_length=3)
-    tax_rate: Decimal = Field(default=Decimal("0.0825"), ge=Decimal("0"), le=Decimal("0.5"))
+    tax_rate: Decimal = Field(default=Decimal("0.0825"), ge=Decimal(0), le=Decimal("0.5"))
     items: list[PricingItemInput] = Field(..., min_length=1)
     promotion: PromotionInput | None = None
 
@@ -70,8 +70,8 @@ class CommissionRuleInput(BaseModel):
     seller_id: str | None = None
     category_id: str | None = None
     commission_type: Literal["PERCENTAGE", "FIXED", "HYBRID"] = "PERCENTAGE"
-    percentage_rate: Decimal = Field(default=Decimal("0.1000"), ge=Decimal("0"), le=Decimal("1"))
-    fixed_amount: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0"))
+    percentage_rate: Decimal = Field(default=Decimal("0.1000"), ge=Decimal(0), le=Decimal(1))
+    fixed_amount: Decimal = Field(default=Decimal("0.00"), ge=Decimal(0))
     priority: int = 100
 
 
@@ -79,10 +79,10 @@ class CommissionItemInput(BaseModel):
     order_item_id: str
     seller_id: str
     category_id: str
-    unit_price: Decimal = Field(..., ge=Decimal("0"))
+    unit_price: Decimal = Field(..., ge=Decimal(0))
     quantity: int = Field(..., gt=0)
-    discount_amount: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0"))
-    seller_rate_override: Decimal | None = Field(default=None, ge=Decimal("0"), le=Decimal("1"))
+    discount_amount: Decimal = Field(default=Decimal("0.00"), ge=Decimal(0))
+    seller_rate_override: Decimal | None = Field(default=None, ge=Decimal(0), le=Decimal(1))
 
 
 class CommissionCalculateRequest(BaseModel):

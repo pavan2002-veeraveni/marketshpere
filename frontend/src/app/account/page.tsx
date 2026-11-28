@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useDispatch, useSelector } from 'react-redux';
 import { Bell, MapPin, Trash2 } from 'lucide-react';
@@ -38,9 +38,12 @@ export default function AccountPage() {
   const queryClient = useQueryClient();
   const user = useSelector((s: RootState) => s.auth.user);
 
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [phone, setPhone] = useState('');
+  const [firstNameDraft, setFirstNameDraft] = useState<string | null>(null);
+  const [lastNameDraft, setLastNameDraft] = useState<string | null>(null);
+  const [phoneDraft, setPhoneDraft] = useState<string | null>(null);
+  const firstName = firstNameDraft ?? user?.firstName ?? '';
+  const lastName = lastNameDraft ?? user?.lastName ?? '';
+  const phone = phoneDraft ?? user?.phone ?? '';
 
   const [addrLabel, setAddrLabel] = useState('Office');
   const [recipientName, setRecipientName] = useState('');
@@ -49,14 +52,6 @@ export default function AccountPage() {
   const [stateVal, setStateVal] = useState('');
   const [postalCode, setPostalCode] = useState('');
   const [addrPhone, setAddrPhone] = useState('');
-
-  useEffect(() => {
-    if (user) {
-      setFirstName(user.firstName);
-      setLastName(user.lastName);
-      setPhone(user.phone ?? '');
-    }
-  }, [user]);
 
   const addressesQuery = useQuery({
     queryKey: ['addresses'],
@@ -140,20 +135,20 @@ export default function AccountPage() {
               <div className="grid grid-cols-2 gap-3">
                 <input
                   value={firstName}
-                  onChange={(e) => setFirstName(e.target.value)}
+                  onChange={(e) => setFirstNameDraft(e.target.value)}
                   placeholder="First name"
                   className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
                 />
                 <input
                   value={lastName}
-                  onChange={(e) => setLastName(e.target.value)}
+                  onChange={(e) => setLastNameDraft(e.target.value)}
                   placeholder="Last name"
                   className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
                 />
               </div>
               <input
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                onChange={(e) => setPhoneDraft(e.target.value)}
                 placeholder="Phone"
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
               />

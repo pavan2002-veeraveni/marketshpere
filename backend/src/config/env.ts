@@ -27,6 +27,7 @@ const envSchema = z.object({
   PYTHON_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
   DEFAULT_TAX_RATE: z.string().default('0.0825'),
   DEFAULT_CURRENCY: z.string().length(3).default('USD'),
+  COOKIE_SECURE: z.enum(['true', 'false']).optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

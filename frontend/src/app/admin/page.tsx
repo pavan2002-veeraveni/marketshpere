@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useDispatch } from 'react-redux';
 import { Activity, DollarSign, ShieldAlert, Users } from 'lucide-react';
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { AppShell } from '@/components/layout/AppShell';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { Breadcrumbs, Button, Card, StatCard, StatusBadge } from '@/components/ui/UiPrimitives';
@@ -250,8 +251,24 @@ export default function AdminDashboardPage() {
               <StatCard title="Risk & Alerts" value={`${analyticsQuery.data.lowStockCount} Low Stock`} subtitle={`${analyticsQuery.data.openDisputes} open disputes`} icon={<ShieldAlert className="h-5 w-5" />} />
             </div>
 
-            <Card className="p-6">
-              <h2 className="text-base font-bold mb-4">Order Distribution by Status</h2>
+            <Card className="p-6 space-y-4">
+              <h2 className="text-base font-bold">Order Distribution by Status</h2>
+              <div className="h-60 w-full">
+                <ResponsiveContainer width="100%" height={240}>
+                  <BarChart
+                    data={Object.entries(analyticsQuery.data.ordersByStatus).map(([status, count]) => ({
+                      status: status.replace(/_/g, ' '),
+                      count,
+                    }))}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis dataKey="status" tick={{ fontSize: 11 }} interval={0} angle={-12} textAnchor="end" height={52} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                    <Tooltip />
+                    <Bar dataKey="count" fill="#1d4ed8" radius={[6, 6, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
               <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
                 {Object.entries(analyticsQuery.data.ordersByStatus).map(([status, count]) => (
                   <div key={status} className="rounded-lg border border-slate-200 p-3 flex items-center justify-between text-xs">

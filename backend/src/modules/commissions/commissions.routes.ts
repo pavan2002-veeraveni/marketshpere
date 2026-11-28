@@ -9,6 +9,7 @@ import { NotFoundError } from '../../common/errors';
 import { addMoney, maxMoney, minMoney, money, mulMoney } from '../../common/decimal';
 import { recordAuditLog } from '../../common/audit';
 import { buildPaginationMeta, getSkipTake } from '../../common/pagination';
+import { pythonClient } from '../../integrations/python-client';
 
 const createRuleSchema = z.object({
   body: z.object({
@@ -23,8 +24,89 @@ const createRuleSchema = z.object({
   }),
 });
 
+export interface PrecomputedCommissionLine {
+  grossAmount: string;
+  discountAllocated: string;
+  commissionAmount: string;
+  netSellerAmount: string;
+  commissionRuleId: string | null;
+}
+
 export const commissionsService = {
-  async calculateAndPersistOrderCommissionsTx(tx: Prisma.TransactionClient, orderId: string) {
+  async previewOrderCommissionsViaPython(
+    orderId: string,
+    requestId?: string,
+  ): Promise<Map<string, PrecomputedCommissionLine>> {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        items: {
+          include: {
+            product: { select: { categoryId: true } },
+            seller: { select: { id: true, commissionRateOverride: true } },
+          },
+        },
+      },
+    });
+    if (!order || order.items.length === 0) return new Map();
+
+    const activeRules = await prisma.commissionRule.findMany({
+      where: { isActive: true },
+      orderBy: { priority: 'asc' },
+    });
+
+    const calcResp = await pythonClient.calculateCommissions({
+      items: order.items.map((item) => ({
+        orderItemId: item.id,
+        sellerId: item.sellerId,
+        categoryId: item.product.categoryId,
+        unitPrice: item.unitPrice.toString(),
+        quantity: item.quantity,
+        discountAmount: item.discountAmount.toString(),
+        sellerRateOverride:
+          item.seller.commissionRateOverride !== null && item.seller.commissionRateOverride !== undefined
+            ? item.seller.commissionRateOverride.toString()
+            : null,
+      })),
+      rules: activeRules.map((r) => ({
+        ruleId: r.id,
+        name: r.name,
+        sellerId: r.sellerId,
+        categoryId: r.categoryId,
+        commissionType: r.commissionType,
+        percentageRate: r.percentageRate.toString(),
+        fixedAmount: r.fixedAmount.toString(),
+        priority: r.priority,
+      })),
+      requestId,
+    });
+
+    const map = new Map<string, PrecomputedCommissionLine>();
+    for (const resLine of calcResp.items) {
+      const orderItem = order.items.find((i) => i.id === resLine.orderItemId);
+      const matchedRule = orderItem
+        ? activeRules.find((r) => r.name === resLine.appliedRule) ??
+          activeRules.find((r) => r.sellerId === orderItem.sellerId && r.categoryId === orderItem.product.categoryId) ??
+          activeRules.find((r) => r.sellerId === orderItem.sellerId && !r.categoryId) ??
+          activeRules.find((r) => !r.sellerId && r.categoryId === orderItem.product.categoryId) ??
+          activeRules.find((r) => !r.sellerId && !r.categoryId)
+        : undefined;
+      map.set(resLine.orderItemId, {
+        grossAmount: resLine.netCommissionableAmount,
+        discountAllocated: resLine.discountAllocated,
+        commissionAmount: resLine.commissionAmount,
+        netSellerAmount: resLine.netSellerAmount,
+        commissionRuleId: matchedRule?.id ?? null,
+      });
+    }
+    return map;
+  },
+
+  async calculateAndPersistOrderCommissionsTx(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+    precomputed?: Map<string, PrecomputedCommissionLine>,
+  ) {
     const order = await tx.order.findUnique({
       where: { id: orderId },
       include: {
@@ -38,16 +120,37 @@ export const commissionsService = {
     });
     if (!order) return [];
 
-    const activeRules = await tx.commissionRule.findMany({
-      where: { isActive: true },
-      orderBy: { priority: 'asc' },
-    });
+    const activeRules = precomputed
+      ? []
+      : await tx.commissionRule.findMany({
+          where: { isActive: true },
+          orderBy: { priority: 'asc' },
+        });
 
     const createdLedgers = [];
     for (const item of order.items) {
       const existing = await tx.commissionLedger.findUnique({ where: { orderItemId: item.id } });
       if (existing) {
         createdLedgers.push(existing);
+        continue;
+      }
+
+      const pre = precomputed?.get(item.id);
+      if (pre) {
+        const ledger = await tx.commissionLedger.create({
+          data: {
+            orderId: order.id,
+            orderItemId: item.id,
+            sellerId: item.sellerId,
+            commissionRuleId: pre.commissionRuleId,
+            grossAmount: pre.grossAmount,
+            discountAllocated: pre.discountAllocated,
+            commissionAmount: pre.commissionAmount,
+            netSellerAmount: pre.netSellerAmount,
+            status: CommissionLedgerStatus.EARNED,
+          },
+        });
+        createdLedgers.push(ledger);
         continue;
       }
 
@@ -170,6 +273,37 @@ commissionsRouter.patch(
         },
       });
       return sendSuccess(req, res, updated, 'Commission rule updated');
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+commissionsRouter.post(
+  '/calculate',
+  requireRoles(RoleName.ADMIN, RoleName.SELLER),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const activeRules = await prisma.commissionRule.findMany({
+        where: { isActive: true },
+        orderBy: { priority: 'asc' },
+      });
+      const items = Array.isArray(req.body.items) ? req.body.items : [];
+      const result = await pythonClient.calculateCommissions({
+        items,
+        rules: activeRules.map((r) => ({
+          ruleId: r.id,
+          name: r.name,
+          sellerId: r.sellerId,
+          categoryId: r.categoryId,
+          commissionType: r.commissionType,
+          percentageRate: r.percentageRate.toString(),
+          fixedAmount: r.fixedAmount.toString(),
+          priority: r.priority,
+        })),
+        requestId: req.requestId,
+      });
+      return sendSuccess(req, res, result, 'Commission preview calculated');
     } catch (err) {
       next(err);
     }

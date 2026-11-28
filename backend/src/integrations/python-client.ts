@@ -48,6 +48,39 @@ export interface RecommendationItem {
   reason: string;
 }
 
+export interface CommissionLineCalcInput {
+  orderItemId: string;
+  sellerId: string;
+  categoryId: string;
+  unitPrice: string;
+  quantity: number;
+  discountAmount: string;
+  sellerRateOverride?: string | null;
+}
+
+export interface CommissionRuleCalcInput {
+  ruleId?: string | null;
+  name: string;
+  sellerId?: string | null;
+  categoryId?: string | null;
+  commissionType: 'PERCENTAGE' | 'FIXED' | 'HYBRID';
+  percentageRate: string;
+  fixedAmount: string;
+  priority: number;
+}
+
+export interface CommissionCalcResultItem {
+  orderItemId: string;
+  sellerId: string;
+  grossAmount: string;
+  discountAllocated: string;
+  netCommissionableAmount: string;
+  commissionAmount: string;
+  netSellerAmount: string;
+  appliedRule: string;
+  explanation: string;
+}
+
 class PythonServiceClient {
   private client: AxiosInstance;
 
@@ -217,6 +250,188 @@ class PythonServiceClient {
       errors: Array<{ row: number; message: string }>;
     }>('/api/v1/feeds/process', { format: payload.format, content: payload.content }, payload.requestId);
     return res;
+  }
+
+  async processFeedUpload(payload: {
+    buffer: Buffer;
+    filename: string;
+    mimeType: string;
+    requestId?: string;
+  }) {
+    const base = env.PYTHON_SERVICE_URL.replace(/\/+$/, '');
+    const form = new FormData();
+    form.append('file', new Blob([new Uint8Array(payload.buffer)], { type: payload.mimeType }), payload.filename);
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), env.PYTHON_TIMEOUT_MS);
+    try {
+      const resp = await fetch(`${base}/api/v1/feeds/upload`, {
+        method: 'POST',
+        headers: {
+          'X-Internal-Service-Token': env.INTERNAL_SERVICE_TOKEN,
+          ...(payload.requestId ? { 'X-Request-ID': payload.requestId } : {}),
+        },
+        body: form,
+        signal: controller.signal,
+      });
+      if (!resp.ok) {
+        throw new Error(`Python /feeds/upload returned ${resp.status}`);
+      }
+      return (await resp.json()) as {
+        total_rows: number;
+        valid_rows: number;
+        invalid_rows: number;
+        duplicate_skus: string[];
+        normalized_items: Array<{
+          title: string;
+          sku_code: string;
+          price: string;
+          category_slug: string;
+          quantity: number;
+          description: string;
+          brand?: string;
+        }>;
+        errors: Array<{ row: number; message: string }>;
+      };
+    } catch (err) {
+      logger.warn(
+        { requestId: payload.requestId, err: err instanceof Error ? err.message : String(err) },
+        'Python multipart /feeds/upload failed; falling back to /feeds/process',
+      );
+      const format = payload.filename.toLowerCase().endsWith('.csv') ? 'csv' : 'json';
+      return this.processFeed({ format, content: payload.buffer.toString('utf8'), requestId: payload.requestId });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async calculateCommissions(params: {
+    items: CommissionLineCalcInput[];
+    rules: CommissionRuleCalcInput[];
+    requestId?: string;
+  }): Promise<{
+    items: CommissionCalcResultItem[];
+    totalCommission: string;
+    totalNetSeller: string;
+    source: 'python-fastapi' | 'deterministic-fallback';
+  }> {
+    if (params.items.length === 0) {
+      return { items: [], totalCommission: '0.00', totalNetSeller: '0.00', source: 'deterministic-fallback' };
+    }
+
+    try {
+      const resp = await this.postWithRetry<{
+        total_commission: string;
+        total_net_seller: string;
+        items: Array<{
+          order_item_id: string;
+          seller_id: string;
+          gross_amount: string;
+          discount_allocated: string;
+          net_commissionable_amount: string;
+          commission_amount: string;
+          net_seller_amount: string;
+          applied_rule: string;
+          explanation: string;
+        }>;
+      }>(
+        '/api/v1/commissions/calculate',
+        {
+          items: params.items.map((i) => ({
+            order_item_id: i.orderItemId,
+            seller_id: i.sellerId,
+            category_id: i.categoryId,
+            unit_price: i.unitPrice,
+            quantity: i.quantity,
+            discount_amount: i.discountAmount,
+            seller_rate_override: i.sellerRateOverride ?? null,
+          })),
+          rules: params.rules.map((r) => ({
+            rule_id: r.ruleId ?? null,
+            name: r.name,
+            seller_id: r.sellerId ?? null,
+            category_id: r.categoryId ?? null,
+            commission_type: r.commissionType,
+            percentage_rate: r.percentageRate,
+            fixed_amount: r.fixedAmount,
+            priority: r.priority,
+          })),
+        },
+        params.requestId,
+      );
+      return {
+        items: resp.items.map((i) => ({
+          orderItemId: i.order_item_id,
+          sellerId: i.seller_id,
+          grossAmount: i.gross_amount,
+          discountAllocated: i.discount_allocated,
+          netCommissionableAmount: i.net_commissionable_amount,
+          commissionAmount: i.commission_amount,
+          netSellerAmount: i.net_seller_amount,
+          appliedRule: i.applied_rule,
+          explanation: i.explanation,
+        })),
+        totalCommission: resp.total_commission,
+        totalNetSeller: resp.total_net_seller,
+        source: 'python-fastapi',
+      };
+    } catch (err) {
+      logger.warn(
+        { requestId: params.requestId, err: err instanceof Error ? err.message : String(err) },
+        'Python commission service unavailable; using deterministic Decimal fallback',
+      );
+      return this.fallbackCommissions(params.items, params.rules);
+    }
+  }
+
+  private fallbackCommissions(items: CommissionLineCalcInput[], rules: CommissionRuleCalcInput[]) {
+    const sortedRules = [...rules].sort((a, b) => a.priority - b.priority);
+    const out: CommissionCalcResultItem[] = [];
+    for (const item of items) {
+      const grossBeforeDiscount = mulMoney(item.unitPrice, item.quantity);
+      const discountAllocated = money(item.discountAmount);
+      const netBase = maxMoney('0.00', grossBeforeDiscount.minus(discountAllocated));
+
+      const rule =
+        sortedRules.find((r) => r.sellerId === item.sellerId && r.categoryId === item.categoryId) ??
+        sortedRules.find((r) => r.sellerId === item.sellerId && !r.categoryId) ??
+        sortedRules.find((r) => !r.sellerId && r.categoryId === item.categoryId) ??
+        sortedRules.find((r) => !r.sellerId && !r.categoryId);
+
+      let commissionAmount = money('0.00');
+      let appliedRule = 'Default Platform 10%';
+      if (item.sellerRateOverride !== null && item.sellerRateOverride !== undefined) {
+        commissionAmount = mulMoney(netBase, item.sellerRateOverride);
+        appliedRule = `Seller Override (${item.sellerRateOverride})`;
+      } else if (rule) {
+        const pctPart = rule.commissionType === 'FIXED' ? money('0.00') : mulMoney(netBase, rule.percentageRate);
+        const fixedPart = rule.commissionType === 'PERCENTAGE' ? money('0.00') : mulMoney(rule.fixedAmount, item.quantity);
+        commissionAmount = addMoney(pctPart, fixedPart);
+        appliedRule = rule.name;
+      } else {
+        commissionAmount = mulMoney(netBase, '0.1000');
+      }
+      commissionAmount = minMoney(commissionAmount, netBase);
+      const netSellerAmount = maxMoney('0.00', netBase.minus(commissionAmount));
+
+      out.push({
+        orderItemId: item.orderItemId,
+        sellerId: item.sellerId,
+        grossAmount: netBase.toFixed(2),
+        discountAllocated: discountAllocated.toFixed(2),
+        netCommissionableAmount: netBase.toFixed(2),
+        commissionAmount: commissionAmount.toFixed(2),
+        netSellerAmount: netSellerAmount.toFixed(2),
+        appliedRule,
+        explanation: `Deterministic fallback (${appliedRule})`,
+      });
+    }
+    return {
+      items: out,
+      totalCommission: addMoney(...out.map((o) => o.commissionAmount)).toFixed(2),
+      totalNetSeller: addMoney(...out.map((o) => o.netSellerAmount)).toFixed(2),
+      source: 'deterministic-fallback' as const,
+    };
   }
 
   async getRecommendations(payload: {

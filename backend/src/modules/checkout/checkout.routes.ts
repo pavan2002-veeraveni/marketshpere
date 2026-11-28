@@ -132,25 +132,73 @@ checkoutRouter.post('/', validateRequest(checkoutSchema), async (req: Request, r
     });
     const skuMap = new Map(skus.map((s) => [s.id, s]));
 
-    const resolvedLines = requestedItems.map((reqItem) => {
+    const mergedLinesMap = new Map<
+      string,
+      { sku: (typeof skus)[number]; warehouseId: string; quantity: number }
+    >();
+    const addResolvedLine = (sku: (typeof skus)[number], warehouseId: string, quantity: number) => {
+      const mergeKey = `${sku.id}:${warehouseId}`;
+      const prev = mergedLinesMap.get(mergeKey);
+      if (prev) {
+        const nextQty = prev.quantity + quantity;
+        if (nextQty > 50) {
+          throw new ValidationError(
+            `Maximum quantity per checkout line is 50 for SKU ${sku.skuCode}`,
+            [],
+            'MAX_LINE_QTY_EXCEEDED',
+          );
+        }
+        prev.quantity = nextQty;
+      } else {
+        mergedLinesMap.set(mergeKey, { sku, warehouseId, quantity });
+      }
+    };
+
+    for (const reqItem of requestedItems) {
       const sku = skuMap.get(reqItem.skuId);
       if (!sku || sku.product.status !== ProductStatus.ACTIVE || sku.product.seller.onboardingStatus !== 'APPROVED') {
         throw new ValidationError(`SKU ${reqItem.skuId} is unavailable for purchase`, [], 'SKU_UNAVAILABLE');
       }
-      const chosenInventory = reqItem.warehouseId
-        ? sku.inventories.find((inv) => inv.warehouseId === reqItem.warehouseId)
-        : sku.inventories.find((inv) => inv.onHandQty - inv.reservedQty >= reqItem.quantity) ?? sku.inventories[0];
 
-      if (!chosenInventory) {
-        throw new ConflictError(`Insufficient stock for SKU ${sku.skuCode}`, 'INSUFFICIENT_STOCK');
+      if (reqItem.warehouseId) {
+        const explicitInv = sku.inventories.find((inv) => inv.warehouseId === reqItem.warehouseId);
+        if (!explicitInv) {
+          throw new ConflictError(`Insufficient stock for SKU ${sku.skuCode}`, 'INSUFFICIENT_STOCK');
+        }
+        addResolvedLine(sku, explicitInv.warehouseId, reqItem.quantity);
+        continue;
       }
 
-      return {
-        sku,
-        warehouseId: chosenInventory.warehouseId,
-        quantity: reqItem.quantity,
-      };
-    });
+      const sortedInvs = [...sku.inventories].sort(
+        (a, b) => Math.max(0, b.onHandQty - b.reservedQty) - Math.max(0, a.onHandQty - a.reservedQty),
+      );
+      const singleFull = sortedInvs.find((inv) => inv.onHandQty - inv.reservedQty >= reqItem.quantity);
+      if (singleFull) {
+        addResolvedLine(sku, singleFull.warehouseId, reqItem.quantity);
+        continue;
+      }
+
+      const totalAvailable = sortedInvs.reduce((acc, inv) => acc + Math.max(0, inv.onHandQty - inv.reservedQty), 0);
+      if (totalAvailable >= reqItem.quantity) {
+        let remaining = reqItem.quantity;
+        for (const inv of sortedInvs) {
+          const avail = Math.max(0, inv.onHandQty - inv.reservedQty);
+          if (avail <= 0) continue;
+          const take = Math.min(remaining, avail);
+          addResolvedLine(sku, inv.warehouseId, take);
+          remaining -= take;
+          if (remaining === 0) break;
+        }
+        continue;
+      }
+
+      const fallbackInv = sortedInvs[0];
+      if (!fallbackInv) {
+        throw new ConflictError(`Insufficient stock for SKU ${sku.skuCode}`, 'INSUFFICIENT_STOCK');
+      }
+      addResolvedLine(sku, fallbackInv.warehouseId, reqItem.quantity);
+    }
+    const resolvedLines = Array.from(mergedLinesMap.values());
 
     const pricingInputs = resolvedLines.map((line) => ({
       productId: line.sku.productId,
@@ -196,7 +244,6 @@ checkoutRouter.post('/', validateRequest(checkoutSchema), async (req: Request, r
 
     const orderNumber = `MS-${new Date().getFullYear()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
     const reservationExpiresAt = new Date(Date.now() + env.RESERVATION_TTL_MINUTES * 60 * 1000);
-    const pricingItemMap = new Map(finalPricing.items.map((pi) => [pi.skuId, pi]));
 
     const result = await prisma.$transaction(async (tx) => {
       // Re-validate discount atomically under lock inside checkout transaction
@@ -244,8 +291,8 @@ checkoutRouter.post('/', validateRequest(checkoutSchema), async (req: Request, r
           discountCode: discountRecord?.code ?? null,
           idempotencyKey,
           items: {
-            create: resolvedLines.map((line) => {
-              const priced = pricingItemMap.get(line.sku.id)!;
+            create: resolvedLines.map((line, idx) => {
+              const priced = finalPricing.items[idx]!;
               return {
                 sellerId: line.sku.product.sellerId,
                 productId: line.sku.productId,

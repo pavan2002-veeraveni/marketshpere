@@ -26,4 +26,4 @@ Provide a standalone FastAPI service implementing deterministic pricing & promot
 
 ## Known Limitations
 - Express falls back to an identical deterministic `decimal.js` implementation if FastAPI is unreachable; live integration was verified with Uvicorn running on port `8000`.
-- Post-fix Python suite verified: `ruff check` (`All checks passed!`), `pytest -v` (**`11/11` passed in `1.14s`**, including `test_feed_upload_multipart_csv` for `POST /api/v1/feeds/upload`), and live benchmark (**Feed `2,000` rows: `48.20 ms` | Pricing `500x10`: `62.72 ms` | Recommendations `200x200`: `118.82 ms`**).
+- Post-fix Python suite verified: global & pinned `ruff check app tests` (`All checks passed!`), `pytest -v` (**`11/11` passed**, `96.0%` thread-aware trace coverage, incl. `test_feed_upload_multipart_csv`), wired Express callers to `/api/v1/commissions/calculate` and `/api/v1/feeds/upload`, and live benchmark (**Feed `2,000` rows: `55.56 ms` | Pricing `500x10`: `108.88 ms` | Recommendations `200x200`: `263.50 ms`**).

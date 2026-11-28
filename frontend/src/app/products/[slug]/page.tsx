@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -35,12 +35,6 @@ export default function ProductDetailPage() {
 
   const product = productQuery.data;
 
-  useEffect(() => {
-    if (product && product.skus.length > 0 && !selectedSkuId) {
-      setSelectedSkuId(product.skus[0]!.id);
-    }
-  }, [product, selectedSkuId]);
-
   const recsQuery = useQuery({
     queryKey: ['product-recs', product?.id],
     enabled: Boolean(product?.id),
@@ -65,8 +59,10 @@ export default function ProductDetailPage() {
 
   const addToCart = useMutation({
     mutationFn: async () => {
+      const targetSkuId =
+        product?.skus.find((s) => s.id === selectedSkuId)?.id ?? product?.skus[0]?.id;
       const res = await apiClient.post<ApiEnvelope<{ items: unknown[] }>>('/cart/items', {
-        skuId: selectedSkuId,
+        skuId: targetSkuId,
         quantity,
       });
       return res.data.data;

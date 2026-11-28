@@ -6,8 +6,9 @@ import { createApp } from '../src/app';
 import { prisma } from '../src/common/prisma';
 import { env } from '../src/config/env';
 import { signWebhookPayload } from '../src/integrations/payment-sandbox';
-import { workerProcessors } from '../src/workers/processors';
+import { workerProcessors, runWithJobTracking } from '../src/workers/processors';
 import { inventoryService } from '../src/modules/inventory/inventory.service';
+import { pythonClient } from '../src/integrations/python-client';
 
 const app = createApp();
 
@@ -174,5 +175,89 @@ describe('Assessment 15 — 6 Marketplace Incident Simulations & Regression Veri
 
     const refundCount = await prisma.refund.count({ where: { orderId } });
     expect(refundCount).toBe(1);
+  });
+
+  it('Incident 7 (Query Plan Verification): EXPLAIN proves products_title_trgm_idx GIN index usability', async () => {
+    const planLines = await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe('SET LOCAL enable_seqscan = OFF');
+      return tx.$queryRaw<Array<{ 'QUERY PLAN': string }>>`
+        EXPLAIN (FORMAT TEXT)
+        SELECT id FROM products
+        WHERE title ILIKE '%Apex%'
+      `;
+    });
+    const planText = planLines.map((r) => r['QUERY PLAN']).join('\n');
+    expect(planText).toContain('products_title_trgm_idx');
+  });
+
+  it('Incident 8 (Worker DLQ Escalation & Python Failover): Escalates 3 failures into DEAD_LETTER and proves deterministic Python fallback', async () => {
+    const jobId = `inc8_dlq_${crypto.randomBytes(4).toString('hex')}`;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await expect(
+        runWithJobTracking('marketsphere-maintenance', jobId, 'outbox-dispatch', { attempt }, async () => {
+          throw new Error(`Simulated transient failure ${attempt}`);
+        }),
+      ).rejects.toThrow();
+    }
+
+    const dlqRecord = await prisma.backgroundJobRecord.findUniqueOrThrow({
+      where: { queueName_jobId: { queueName: 'marketsphere-maintenance', jobId } },
+    });
+    expect(dlqRecord.status).toBe('DEAD_LETTER');
+    expect(dlqRecord.attempts).toBe(3);
+
+    // Recovery run flips record cleanly back to COMPLETED
+    const recovered = await runWithJobTracking(
+      'marketsphere-maintenance',
+      jobId,
+      'outbox-dispatch',
+      { recovered: true },
+      async () => ({ recovered: true }),
+    );
+    expect(recovered._jobRecord.status).toBe('COMPLETED');
+
+    // Deterministic decimal.js failover matches FastAPI pricing/commission math if FastAPI throws
+    const clientAny = pythonClient as unknown as { client: { post: () => Promise<never> } };
+    const origPost = clientAny.client.post;
+    clientAny.client.post = async () => {
+      throw new Error('ECONNREFUSED simulated FastAPI outage');
+    };
+    try {
+      const fbPrice = await pythonClient.calculatePricing({
+        items: [
+          {
+            productId: 'p1',
+            skuId: 's1',
+            skuCode: 'SKU-FB-1',
+            sellerId: 'sel1',
+            categoryId: 'cat1',
+            unitPrice: '50.00',
+            quantity: 2,
+          },
+        ],
+        promotion: { code: 'SAVE10', discountType: 'PERCENTAGE', value: '10.00' },
+      });
+      expect(fbPrice.source).toBe('deterministic-fallback');
+      expect(fbPrice.subtotalAmount).toBe('100.00');
+      expect(fbPrice.discountAmount).toBe('10.00');
+
+      const fbComm = await pythonClient.calculateCommissions({
+        items: [
+          {
+            orderItemId: 'oi-fb',
+            sellerId: 'sel1',
+            categoryId: 'cat1',
+            unitPrice: '100.00',
+            quantity: 1,
+            discountAmount: '10.00',
+          },
+        ],
+        rules: [],
+      });
+      expect(fbComm.source).toBe('deterministic-fallback');
+      expect(fbComm.totalCommission).toBe('9.00');
+    } finally {
+      clientAny.client.post = origPost;
+    }
   });
 });
