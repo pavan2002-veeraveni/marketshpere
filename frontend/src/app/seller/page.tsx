@@ -35,8 +35,11 @@ export default function SellerPortalPage() {
   const [adjQty, setAdjQty] = useState('5');
   const [adjType, setAdjType] = useState<'ADJUSTMENT_IN' | 'ADJUSTMENT_OUT' | 'DAMAGED'>('ADJUSTMENT_IN');
 
-  // Onboarding file upload state
+  // Onboarding & media upload state
   const [docFile, setDocFile] = useState<File | null>(null);
+  const [feedFile, setFeedFile] = useState<File | null>(null);
+  const [imgProductId, setImgProductId] = useState('');
+  const [productImgFile, setProductImgFile] = useState<File | null>(null);
 
   const analyticsQuery = useQuery({
     queryKey: ['seller-analytics'],
@@ -194,6 +197,16 @@ export default function SellerPortalPage() {
 
   const importFeed = useMutation({
     mutationFn: async () => {
+      if (feedFile) {
+        const form = new FormData();
+        form.append('file', feedFile);
+        const res = await apiClient.post<ApiEnvelope<{ importedCount: number; invalidRows: number }>>(
+          '/seller/products/feed-import',
+          form,
+          { headers: { 'Content-Type': 'multipart/form-data' } },
+        );
+        return res.data.data;
+      }
       const res = await apiClient.post<ApiEnvelope<{ importedCount: number; invalidRows: number }>>(
         '/seller/products/feed-import',
         { format: 'csv', content: feedText },
@@ -201,6 +214,7 @@ export default function SellerPortalPage() {
       return res.data.data;
     },
     onSuccess: (report) => {
+      setFeedFile(null);
       queryClient.invalidateQueries({ queryKey: ['seller-products'] });
       queryClient.invalidateQueries({ queryKey: ['seller-inventory'] });
       dispatch(
@@ -209,6 +223,24 @@ export default function SellerPortalPage() {
           message: `Feed processed: ${report.importedCount} imported, ${report.invalidRows} invalid rows`,
         }),
       );
+    },
+    onError: (err) => dispatch(pushToast({ type: 'error', message: extractErrorMessage(err) })),
+  });
+
+  const uploadProductImage = useMutation({
+    mutationFn: async () => {
+      const pid = imgProductId || productsQuery.data?.[0]?.id;
+      if (!pid || !productImgFile) throw new Error('Select a product and PNG/JPEG/WEBP image');
+      const form = new FormData();
+      form.append('file', productImgFile);
+      await apiClient.post(`/seller/products/${pid}/images`, form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+    },
+    onSuccess: () => {
+      setProductImgFile(null);
+      queryClient.invalidateQueries({ queryKey: ['seller-products'] });
+      dispatch(pushToast({ type: 'success', message: 'Product image uploaded!' }));
     },
     onError: (err) => dispatch(pushToast({ type: 'error', message: extractErrorMessage(err) })),
   });
@@ -447,19 +479,62 @@ export default function SellerPortalPage() {
 
             <Card className="p-6 space-y-3">
               <h2 className="text-base font-bold text-slate-900">Bulk CSV Feed Import (Python FastAPI)</h2>
+              <div className="space-y-1">
+                <label htmlFor="feed-file-upload" className="block text-xs font-medium text-slate-600">
+                  Upload CSV/JSON file (multipart) or paste rows below:
+                </label>
+                <input
+                  id="feed-file-upload"
+                  type="file"
+                  accept=".csv,.json"
+                  onChange={(e) => setFeedFile(e.target.files?.[0] ?? null)}
+                  className="text-xs"
+                />
+              </div>
               <textarea
-                rows={5}
+                rows={4}
                 value={feedText}
                 onChange={(e) => setFeedText(e.target.value)}
                 className="w-full rounded-lg border border-slate-300 p-2.5 font-mono text-xs"
               />
               <Button size="sm" onClick={() => importFeed.mutate()} disabled={importFeed.isPending}>
-                Normalize & Import CSV Feed
+                {feedFile ? `Upload & Import (${feedFile.name})` : 'Normalize & Import CSV Feed'}
               </Button>
             </Card>
 
-            <Card className="lg:col-span-2 p-6">
-              <h2 className="text-base font-bold text-slate-900 mb-3">My Products</h2>
+            <Card className="lg:col-span-2 p-6 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="text-base font-bold text-slate-900">My Products & Media Upload</h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    aria-label="Product for image upload"
+                    value={imgProductId || productsQuery.data?.[0]?.id || ''}
+                    onChange={(e) => setImgProductId(e.target.value)}
+                    className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs bg-white"
+                  >
+                    {productsQuery.data?.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.title}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="file"
+                    aria-label="Product image file"
+                    accept=".png,.jpg,.jpeg,.webp"
+                    onChange={(e) => setProductImgFile(e.target.files?.[0] ?? null)}
+                    className="text-xs"
+                  />
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={!productImgFile || uploadProductImage.isPending}
+                    onClick={() => uploadProductImage.mutate()}
+                  >
+                    <Upload className="h-3.5 w-3.5" /> Upload Image
+                  </Button>
+                </div>
+              </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead className="border-b border-slate-200 text-slate-500">

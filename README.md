@@ -8,10 +8,10 @@ MarketSphere is an enterprise-grade modular monorepo marketplace featuring a **N
 
 ```text
 marketsphere/
-├── frontend/                  # Next.js 15 App Router, React 19, TypeScript, Tailwind CSS, RTK, TanStack Query
+├── frontend/                  # Next.js 16 App Router, React 19, TypeScript, Tailwind CSS, RTK, TanStack Query, Recharts
 ├── backend/                   # Express.js, TypeScript, Prisma ORM, PostgreSQL, Redis/BullMQ, Pino, Swagger
 │   ├── prisma/                # 50-table normalized schema, SQL migrations + CHECK constraints, seed
-│   └── tests/                 # Auth/RBAC, concurrency, webhooks, refunds, workers, 6 incident simulations
+│   └── tests/                 # Auth/CSRF/RBAC, concurrency, webhooks, refunds, workers, full modules & 8 incidents
 ├── python-services/           # FastAPI, Pydantic v2, Decimal arithmetic, Uvicorn, pytest, ruff
 ├── infrastructure/            # Nginx reverse proxy & TLS config, Postgres init SQL, backup scripts
 ├── docs/

@@ -78,6 +78,8 @@ export const ordersService = {
       }
     }
 
+    const isSellerOnly = !isElevated && caller.roles.includes(RoleName.SELLER) && Boolean(caller.sellerId);
+
     const { skip, take } = getSkipTake(query.page, query.limit);
     const [orders, total] = await Promise.all([
       prisma.order.findMany({
@@ -87,12 +89,9 @@ export const ordersService = {
         orderBy: { createdAt: 'desc' },
         include: {
           customer: { select: { id: true, email: true, firstName: true, lastName: true } },
-          items:
-            !isElevated && caller.roles.includes(RoleName.SELLER) && caller.sellerId
-              ? { where: { sellerId: caller.sellerId } }
-              : true,
-          payments: { select: { id: true, status: true, amount: true, providerPaymentId: true } },
-          shipments: true,
+          items: isSellerOnly ? { where: { sellerId: caller.sellerId! } } : true,
+          ...(isSellerOnly ? {} : { payments: { select: { id: true, status: true, amount: true, providerPaymentId: true } } }),
+          shipments: isSellerOnly ? { where: { sellerId: caller.sellerId! } } : true,
         },
       }),
       prisma.order.count({ where }),
@@ -136,8 +135,10 @@ export const ordersService = {
           throw new ForbiddenError('Order does not contain items from your seller store', 'SELLER_ISOLATION_VIOLATION');
         }
         const sellerSkuIds = new Set(sellerItems.map((i) => i.skuId));
+        const hasOtherSellerItems = order.items.length > sellerItems.length;
         return {
           ...order,
+          payments: hasOtherSellerItems ? [] : order.payments,
           items: sellerItems,
           shipments: order.shipments.filter((s) => s.sellerId === caller.sellerId),
           returns: order.returns.filter((r) => r.sellerId === caller.sellerId),

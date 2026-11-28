@@ -15,6 +15,6 @@ Provide comprehensive versioned REST documentation (`/api/v1/`) covering Auth, C
 - Complete Postman v2.1 collection exported at `docs/postman/marketsphere.postman_collection.json`.
 
 ## Verification
-- Expanded `backend/src/docs/openapi.ts` to **`74` OpenAPI 3.0.3 paths** with request/response/parameter schemas mounted at `/api/docs` and `/api/docs.json`.
-- Expanded Postman collection (`docs/postman/marketsphere.postman_collection.json`) to **`32` requests across `6` folders**, and documented FastAPI Python contracts in `API_DOCUMENTATION.md`.
-- Verified `/api/docs.json` and `/api/docs` endpoint definitions compile and mount in `backend/src/app.ts` and are exercised across backend integration tests.
+- Expanded `backend/src/docs/openapi.ts` to full **100% route parity (`106/106` Express route operations, `0` missing)** with request/response/parameter schemas mounted at `/api/docs` and `/api/docs.json`.
+- Postman v2.1 collection (`docs/postman/marketsphere.postman_collection.json`, `32` requests across `6` folders) verified live across all `16/16` GET endpoints (`200 OK`), and FastAPI Python contracts are documented in `API_DOCUMENTATION.md`.
+- Verified `/api/docs.json` and `/api/docs` endpoint definitions compile and mount in `backend/src/app.ts` and are asserted in `modules_coverage.test.ts`.

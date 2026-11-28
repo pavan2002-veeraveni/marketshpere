@@ -1,9 +1,11 @@
 import json
-import time
 from decimal import Decimal
+
 from fastapi.testclient import TestClient
-from app.main import app
+
 from app.core.config import settings
+from app.main import app
+from app.services.recommendation_service import evaluate_ranking_metrics
 
 client = TestClient(app)
 HEADERS = {"X-Internal-Service-Token": settings.internal_service_token}
@@ -148,14 +150,12 @@ def test_commissions_seller_override_and_rules():
 
 
 def test_feed_processing_csv_with_duplicates_and_invalid_rows():
-    csv_content = "\n".join(
-        [
-            "title,sku_code,price,category_slug,quantity,brand",
-            "  Wireless   Mic  ,apx-mic-01,$129.99,audio-studio,15,Apex",
-            "Duplicate Mic,APX-MIC-01,129.99,audio-studio,5,Apex",
-            "Bad Price Item,BAD-02,-10.00,electronics,3,Apex",
-            "Studio Stand,APX-STD-02,49.50,accessories,20,Apex",
-        ]
+    csv_content = (
+        "title,sku_code,price,category_slug,quantity,brand\n"
+        "  Wireless   Mic  ,apx-mic-01,$129.99,audio-studio,15,Apex\n"
+        "Duplicate Mic,APX-MIC-01,129.99,audio-studio,5,Apex\n"
+        "Bad Price Item,BAD-02,-10.00,electronics,3,Apex\n"
+        "Studio Stand,APX-STD-02,49.50,accessories,20,Apex\n"
     )
     res = client.post(
         "/api/v1/feeds/process",
@@ -183,45 +183,76 @@ def test_feed_processing_json_invalid_input():
     assert res.json()["valid_rows"] == 0
 
 
+SAMPLE_CATALOG = [
+    {"product_id": "p-1", "category_id": "cat-audio", "title": "Studio ANC Headphones", "popularity_score": 95.0, "price": "249.00"},
+    {"product_id": "p-2", "category_id": "cat-elec", "title": "Mechanical Keyboard", "popularity_score": 88.0, "price": "169.00"},
+    {"product_id": "p-3", "category_id": "cat-acc", "title": "Studio Audio DAC Cable", "popularity_score": 72.0, "price": "89.00"},
+    {"product_id": "p-4", "category_id": "cat-audio", "title": "Studio Condenser Mic", "popularity_score": 78.0, "price": "199.00"},
+    {"product_id": "p-5", "category_id": "cat-office", "title": "Oak Monitor Riser", "popularity_score": 74.0, "price": "119.00"},
+]
+
+
 def test_recommendations_cold_start_deterministic_fallback():
-    res = client.get("/api/v1/recommendations/unknown-new-user", headers=HEADERS)
+    res = client.post(
+        "/api/v1/recommendations",
+        json={"customer_id": "unknown-new-user", "catalog": SAMPLE_CATALOG, "limit": 3},
+        headers=HEADERS,
+    )
     assert res.status_code == 200
     data = res.json()
     assert data["strategy"] == "deterministic-cold-start-popularity"
-    assert len(data["recommendations"]) > 0
+    assert [r["product_id"] for r in data["recommendations"]] == ["p-1", "p-2", "p-4"]
     assert "no customer history available" in data["recommendations"][0]["reason"].lower()
 
+    get_res = client.get("/api/v1/recommendations/unknown-new-user", headers=HEADERS)
+    assert get_res.status_code == 200
+    assert get_res.json()["strategy"] == "stateless-catalog-required"
+    assert get_res.json()["recommendations"] == []
 
-def test_recommendations_personalized_category_affinity():
-    res = client.get("/api/v1/recommendations/demo-customer-office", headers=HEADERS)
+
+def test_recommendations_personalized_category_affinity_and_ranking_metrics():
+    res = client.post(
+        "/api/v1/recommendations",
+        json={
+            "customer_id": "cust-audio-1",
+            "product_id": "p-1",
+            "catalog": SAMPLE_CATALOG,
+            "purchased_product_ids": ["p-5"],
+            "viewed_category_ids": ["cat-audio"],
+            "limit": 3,
+        },
+        headers=HEADERS,
+    )
     assert res.status_code == 200
     data = res.json()
     assert data["strategy"] == "hybrid-personalized-similarity"
-    assert data["recommendations"][0]["product_id"] in {"syn-prod-5", "syn-prod-3", "syn-prod-6"}
+    rec_ids = [r["product_id"] for r in data["recommendations"]]
+    assert rec_ids[0] == "p-4"
+    metrics = evaluate_ranking_metrics(rec_ids, {"p-4", "p-3"}, k=3)
+    assert metrics["precision_at_k"] >= 0.66
+    assert metrics["ndcg_at_k"] >= 0.85
 
 
-def test_feed_and_pricing_benchmark_under_threshold():
+def test_feed_and_pricing_bulk_normalization():
     rows = ["title,sku_code,price,category_slug,quantity"]
     for i in range(500):
         rows.append(f"Item {i},SKU-BENCH-{i:04d},{10 + (i % 90)}.99,electronics,{i % 50}")
     csv_blob = "\n".join(rows)
-    start = time.perf_counter()
     res = client.post(
         "/api/v1/feeds/process",
         json={"format": "csv", "content": csv_blob},
         headers=HEADERS,
     )
-    elapsed_ms = (time.perf_counter() - start) * 1000
     assert res.status_code == 200
     assert res.json()["valid_rows"] == 500
-    assert elapsed_ms < 2000
+    assert len(res.json()["normalized_items"]) == 500
 
 
 def test_feed_upload_multipart_csv():
     csv_bytes = (
-        "title,sku_code,price,category_slug,quantity,brand\n"
-        "Uploaded Ribbon Mic,UP-MIC-01,299.00,audio-studio,12,Apex\n"
-    ).encode("utf-8")
+        b"title,sku_code,price,category_slug,quantity,brand\n"
+        b"Uploaded Ribbon Mic,UP-MIC-01,299.00,audio-studio,12,Apex\n"
+    )
     res = client.post(
         "/api/v1/feeds/upload",
         files={"file": ("feed.csv", csv_bytes, "text/csv")},

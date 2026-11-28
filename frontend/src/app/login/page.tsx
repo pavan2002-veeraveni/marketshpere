@@ -48,7 +48,7 @@ export default function LoginPage() {
       const res = await apiClient.post<
         ApiEnvelope<{ user: UserProfile; accessToken: string; refreshToken: string }>
       >('/auth/login', values);
-      tokenStorage.setTokens(res.data.data.accessToken, res.data.data.refreshToken);
+      tokenStorage.setTokens(res.data.data.accessToken);
       dispatch(setUser(res.data.data.user));
       dispatch(pushToast({ type: 'success', message: `Welcome back, ${res.data.data.user.firstName}!` }));
 

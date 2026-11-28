@@ -35,8 +35,20 @@ export const inventoryService = {
       items: StockReservationLine[];
     },
   ) {
+    // Merge duplicate (skuId, warehouseId) lines before deterministic row-lock ordering
+    const mergedMap = new Map<string, StockReservationLine>();
+    for (const item of params.items) {
+      const key = `${item.skuId}:${item.warehouseId}`;
+      const existingLine = mergedMap.get(key);
+      if (existingLine) {
+        existingLine.quantity += item.quantity;
+      } else {
+        mergedMap.set(key, { ...item });
+      }
+    }
+
     // Deterministic ordering prevents lock-order deadlocks on multi-SKU checkouts
-    const sorted = [...params.items].sort((a, b) =>
+    const sorted = Array.from(mergedMap.values()).sort((a, b) =>
       `${a.skuId}:${a.warehouseId}`.localeCompare(`${b.skuId}:${b.warehouseId}`),
     );
 

@@ -44,7 +44,8 @@
 ### Health & Docs
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| GET | `/api/v1/health` | Public | Liveness & dependency readiness (PostgreSQL, Redis, Python) |
+| GET | `/api/v1/health` | Public | Liveness & dependency readiness (`?strict=true` returns `503` when degraded; `5000ms` Python probe timeout) |
+| GET | `/api/v1/health/metrics` | Public | Prometheus text metrics (`0.0.4`) |
 | GET | `/api/docs` | Public | Swagger / OpenAPI UI |
 
 ### Authentication (`/api/v1/auth`)
@@ -138,6 +139,7 @@
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | GET / POST / PATCH | `/commissions/rules` | ADMIN | Configure global/seller/category commission rules |
+| POST | `/commissions/calculate` | ADMIN / SELLER | Compute commission preview via Python FastAPI (`/api/v1/commissions/calculate`) with Decimal fallback |
 | GET | `/commissions/ledger` | SELLER (Own) / ADMIN | View commission breakdown |
 | GET | `/settlements` | SELLER (Own) / ADMIN | View seller settlement statements |
 | POST | `/settlements/generate` | ADMIN | Generate period settlement batch (`async: true` queues `settlement-batch`) |
@@ -164,4 +166,4 @@ Authenticated via internal header `X-Internal-Service-Token` (plus `X-Request-ID
 5. `POST /api/v1/feeds/upload` — Multipart CSV/JSON file upload normalization endpoint.
 6. `POST /api/v1/recommendations` & `GET /api/v1/recommendations/{customer_id}` — Explainable ranking combining popular products, category affinity, item similarity, and purchase history with deterministic cold-start fallback.
 
-Full OpenAPI 3.0.3 path/parameter/body/envelope schemas are served live at `/api/docs` (`/api/docs.json`) and exported in [`docs/postman/marketsphere.postman_collection.json`](./docs/postman/marketsphere.postman_collection.json).
+Full OpenAPI 3.0.3 path/parameter/body/envelope schemas are served live at `/api/docs` (`/api/docs.json`, achieving 100% parity across all `106` Express route operations) and exported in [`docs/postman/marketsphere.postman_collection.json`](./docs/postman/marketsphere.postman_collection.json).

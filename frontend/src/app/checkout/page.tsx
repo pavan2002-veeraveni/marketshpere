@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useDispatch } from 'react-redux';
@@ -31,7 +31,12 @@ export default function CheckoutPage() {
   const queryClient = useQueryClient();
 
   const [selectedAddressId, setSelectedAddressId] = useState('');
-  const [discountCode, setDiscountCode] = useState('');
+  const [discountCode, setDiscountCode] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return new URLSearchParams(window.location.search).get('coupon') ?? '';
+    }
+    return '';
+  });
   const [recipientName, setRecipientName] = useState('');
   const [line1, setLine1] = useState('');
   const [city, setCity] = useState('');
@@ -45,14 +50,6 @@ export default function CheckoutPage() {
     typeof crypto !== 'undefined' && crypto.randomUUID ? `chk_${crypto.randomUUID()}` : `chk_${Date.now()}`,
   );
 
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const sp = new URLSearchParams(window.location.search);
-      const coupon = sp.get('coupon');
-      if (coupon) setDiscountCode(coupon);
-    }
-  }, []);
-
   const addressesQuery = useQuery({
     queryKey: ['addresses'],
     queryFn: async () => {
@@ -61,12 +58,8 @@ export default function CheckoutPage() {
     },
   });
 
-  useEffect(() => {
-    if (addressesQuery.data?.length && !selectedAddressId) {
-      const def = addressesQuery.data.find((a) => a.isDefault) ?? addressesQuery.data[0]!;
-      setSelectedAddressId(def.id);
-    }
-  }, [addressesQuery.data, selectedAddressId]);
+  const activeAddressId =
+    selectedAddressId || (addressesQuery.data?.find((a) => a.isDefault) ?? addressesQuery.data?.[0])?.id || '';
 
   const cartQuery = useQuery({
     queryKey: ['cart', discountCode],
@@ -82,8 +75,8 @@ export default function CheckoutPage() {
   const placeOrder = useMutation({
     mutationFn: async () => {
       const body =
-        selectedAddressId && selectedAddressId !== 'NEW'
-          ? { addressId: selectedAddressId, discountCode: discountCode || undefined }
+        activeAddressId && activeAddressId !== 'NEW'
+          ? { addressId: activeAddressId, discountCode: discountCode || undefined }
           : {
               shippingAddress: { recipientName, line1, city, state: stateVal, postalCode, country: 'US', phone },
               discountCode: discountCode || undefined,
@@ -229,13 +222,13 @@ export default function CheckoutPage() {
                   <label
                     key={addr.id}
                     className={`flex items-start gap-3 rounded-xl border p-4 cursor-pointer ${
-                      selectedAddressId === addr.id ? 'border-blue-700 bg-blue-50/40' : 'border-slate-200'
+                      activeAddressId === addr.id ? 'border-blue-700 bg-blue-50/40' : 'border-slate-200'
                     }`}
                   >
                     <input
                       type="radio"
                       name="addr"
-                      checked={selectedAddressId === addr.id}
+                      checked={activeAddressId === addr.id}
                       onChange={() => setSelectedAddressId(addr.id)}
                       className="mt-1"
                     />
@@ -253,14 +246,14 @@ export default function CheckoutPage() {
                   <input
                     type="radio"
                     name="addr"
-                    checked={selectedAddressId === 'NEW' || !addressesQuery.data?.length}
+                    checked={activeAddressId === 'NEW' || !addressesQuery.data?.length}
                     onChange={() => setSelectedAddressId('NEW')}
                   />
                   Enter a new shipping address
                 </label>
               </div>
 
-              {(selectedAddressId === 'NEW' || !addressesQuery.data?.length) && (
+              {(activeAddressId === 'NEW' || !addressesQuery.data?.length) && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
                   <input
                     placeholder="Recipient Name"

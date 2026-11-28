@@ -79,6 +79,20 @@ export const paymentsService = {
       };
     }
 
+    let precomputedCommissions: Awaited<ReturnType<typeof commissionsService.previewOrderCommissionsViaPython>> | undefined;
+    if (params.payload.eventType === 'PAYMENT_SUCCEEDED') {
+      const targetPay = await prisma.payment.findFirst({
+        where: { providerPaymentId: params.payload.providerPaymentId },
+        select: { orderId: true },
+      });
+      if (targetPay) {
+        precomputedCommissions = await commissionsService.previewOrderCommissionsViaPython(
+          targetPay.orderId,
+          params.requestId,
+        );
+      }
+    }
+
     let txResult;
     try {
       txResult = await prisma.$transaction(async (tx) => {
@@ -158,7 +172,11 @@ export const paymentsService = {
             await inventoryService.commitOrderReservationsTx(tx, {
               orderId: orderRow.id,
             });
-            await commissionsService.calculateAndPersistOrderCommissionsTx(tx, orderRow.id);
+            await commissionsService.calculateAndPersistOrderCommissionsTx(
+              tx,
+              orderRow.id,
+              precomputedCommissions,
+            );
 
             await tx.notification.create({
               data: {

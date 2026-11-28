@@ -6,6 +6,7 @@ backend/node_modules/
 # Build & runtime outputs
 frontend/.next/
 frontend/out/
+*.tsbuildinfo
 backend/dist/
 backend/coverage/
 frontend/coverage/

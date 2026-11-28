@@ -101,31 +101,21 @@ Because no codebase exists yet, every security control must be built in from day
 - Strict upload validation (extension, MIME sniffing/verification, byte limits, sanitized filenames, non-public storage keys).
 - Helmet, strict CORS, Zod validation, safe centralized error serialization (no stack traces or SQL leaks), and audit logging.
 
----
-
-## 10. Proposed Implementation Plan
-
-Execution proceeds incrementally in 11 dependency-ordered phases (detailed in [`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md)):
-- **Phase 1:** Repository isolation (`git init`), monorepo structure, architecture/DB/API/plan documentation.
-- **Phase 2:** Infrastructure config, Dockerfiles, `docker-compose.yml`, Nginx config, Prisma schema (43+ models), migrations, synthetic seed data.
-- **Phase 3:** Express core foundation, config validation, Pino logger, request correlation IDs, centralized error handler, auth + RBAC + Swagger.
-- **Phase 4:** Core commerce APIs (seller onboarding, catalog/SKUs, warehouses, concurrency-safe inventory reservations & ledger, carts, transactional checkout, order state machine, promotions).
-- **Phase 5:** Financial & fulfillment modules (sandbox payment/shipping/email/storage adapters, idempotent webhooks, returns, refunds, reviews, Decimal-safe commissions & settlements).
-- **Phase 6:** Python FastAPI bounded services (pricing, commissions, streaming CSV/JSON feed processor, explainable recommendations) + pytest + benchmarks.
-- **Phase 7:** Next.js App Router frontend with unified design system and all 5 role portals.
-- **Phase 8:** Redis + BullMQ workers, outbox publisher, reservation expiry sweep, failed-job replay endpoints.
-- **Phase 9:** Full automated test suite (PostgreSQL concurrency test, webhook/refund idempotency tests, security/IDOR tests, frontend RTL + Playwright E2E).
-- **Phase 10:** CI/CD GitHub Actions workflows, PR template, `CODEOWNERS`, Nginx/HTTPS/backup/monitoring configs, `SECURITY.md`, `TESTING.md`, `DEPLOYMENT.md`, `TROUBLESHOOTING.md`.
-- **Phase 11:** Execute and document all 15 Assessments (`docs/assessments/assessment-01.md` – `assessment-15.md`), incident simulations, Postman collection, and final verification audit.
+- Note: The pre-build checklist in Section 1–9 above records the initial greenfield workspace snapshot (`2026-11-27`) prior to MarketSphere implementation. See [`IMPLEMENTATION_STATUS.md`](./IMPLEMENTATION_STATUS.md) and [`docs/FINAL_EVALUATION_REPORT.md`](./docs/FINAL_EVALUATION_REPORT.md) for current implemented, tested, and verified state.
 
 ---
 
-## 11. Important Risks and Dependencies
+## 10. Realized Implementation Roadmap (Completed)
 
-| Risk / Dependency | Impact | Mitigation |
-|---|---|---|
-| **Local PostgreSQL Credentials** | Host PostgreSQL 18/19 requires `scram-sha-256` password not yet configured for this workspace. | Support standard `.env` `DATABASE_URL` + Docker Compose PostgreSQL; for local testing without altering host Postgres, verify connectivity or allow user-configured `.env` / isolated local dev DB cluster if authorized. |
-| **Redis Unavailable Locally** | BullMQ queues and Redis caching require a real Redis instance (`redis-server` is not installed on Windows host). | Author complete `docker-compose.yml` Redis service; document local Redis / Memurai / Docker requirement transparently; never fake Redis/BullMQ verification if daemon cannot run locally. |
-| **Docker CLI Unavailable Locally** | `docker` binary is absent on host PATH, preventing live `docker compose up --build` execution on this machine unless Docker Desktop is installed/started. | Produce validated multi-stage Dockerfiles, healthchecks, and `docker-compose.yml` configs, verify syntax/configs, and explicitly report Docker execution status without fabricating startup logs. |
-| **Unrelated Parent `.git` Repo** | Running git commands inside `Marketsphere/` currently traverses to `C:\Users\chinn\.git`. | Run `git init -b main` inside `Marketsphere/` as the very first repository hygiene step. |
-| **Scope & Integration Complexity** | 5 portals, 13+ backend modules, 4 Python services, 43+ tables, and 15 assessments risk schema or contract drift. | Lock canonical Prisma schema, shared OpenAPI contracts, and `IMPLEMENTATION_STATUS.md` tracker before writing feature code; test each milestone immediately. |
+Execution proceeded cleanly across 11 dependency-ordered phases (detailed in [`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md)):
+- **Phase 1:** Repository isolation (`git init -b main`), monorepo structure, architecture/DB/API/plan documentation.
+- **Phase 2:** Infrastructure config, multi-stage Dockerfiles, 7-service `docker-compose.yml`, Nginx HTTP/HTTPS configs, Prisma schema (`50` domain models / `51` Postgres tables), migrations, deterministic seed data.
+- **Phase 3:** Express core foundation, Zod env validation, Pino redaction, request IDs, centralized error handler, auth + RBAC + double-submit CSRF + OpenAPI/Swagger.
+- **Phase 4:** Core commerce APIs (seller onboarding, catalog/SKUs, warehouses, concurrency-safe `FOR UPDATE` inventory reservations & ledger, multi-warehouse checkout split, order state machine, promotions).
+- **Phase 5:** Financial & fulfillment modules (sandbox payment/shipping/email/storage adapters, idempotent webhooks, returns, `FOR UPDATE` refunds, reviews, Decimal-safe commissions & settlements).
+- **Phase 6:** Python FastAPI bounded services (pricing, commissions, streaming CSV/JSON feed processor + multipart `/feeds/upload`, explainable recommendations + Precision@K/NDCG@K evaluation) + pytest + benchmarks.
+- **Phase 7:** Next.js 16 App Router frontend (`0` prod CVEs, memory-only access tokens + silent `/auth/refresh` bootstrap, Recharts analytics visualization, multipart CSV & product image uploads across all 5 role portals).
+- **Phase 8:** Redis + BullMQ workers (running locally via Memurai Redis `:6379` + `dist/worker.js` and tested in CI Redis), outbox publisher, reservation expiry sweep, DLQ escalation & replay endpoints.
+- **Phase 9:** Automated test suites (`41/41` backend integration/concurrency/incident tests at `80.18%` coverage, `11/11` Python pytest, `8/8` frontend Vitest RTL, live Playwright E2E + live Postman GET checks).
+- **Phase 10:** CI/CD GitHub Actions (`ci-cd.yml` with strict backend + frontend `npm audit`, `nginx -t` check, PR template, `CODEOWNERS`), local RSA PEM TLS scripts, PostgreSQL backup/restore verification (`51` tables).
+- **Phase 11:** 15 Assessments (`docs/assessments/assessment-01.md` – `assessment-15.md`), Postman collection, and strict technical evaluation ([`docs/FINAL_EVALUATION_REPORT.md`](./docs/FINAL_EVALUATION_REPORT.md)).

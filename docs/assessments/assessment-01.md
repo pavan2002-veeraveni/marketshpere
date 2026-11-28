@@ -14,10 +14,11 @@
 
 ## Observed Execution Results
 - `npm --prefix frontend run typecheck`: **0 errors**
-- `npm --prefix frontend run lint`: **0 errors** (`1` non-blocking unused-parameter warning in `src/lib/api-client.ts`)
-- `npm --prefix frontend test` (`Vitest` + React Testing Library): **5/5 tests passed** (`193ms` tests / `4.50s` run, incl. `/forgot-password`)
-- `npm --prefix frontend run build`: **15/15 Next.js App Router pages built cleanly** (incl. `/forgot-password`)
-- `npm --prefix frontend run test:e2e` (Playwright Chromium against live Next.js + Express + FastAPI + PostgreSQL 18): **1/1 full E2E multi-role walkthrough passed (`7.5s` test / `9.2s` suite)** across storefront & search (`Apex Studio`), cart, checkout/sandbox payment, order tracking, seller (`Products & Feed Import`), warehouse, support, admin console (`Run Outbox Dispatch`), `/forgot-password`, and `390x844` mobile responsive viewport (zero horizontal overflow).
+- `npm --prefix frontend run lint`: **0 errors, 0 warnings** (`eslint-config-next/core-web-vitals` + `typescript` flat config for Next.js `16.4.6`)
+- `npm --prefix frontend test` (`Vitest` + React Testing Library): **2/2 files, 8/8 tests passed** (incl. `/forgot-password`, memory-only auth, `ProtectedRoute` RBAC, Warehouse/Support/Seller/Admin portals, and Recharts rendering)
+- `npm --prefix frontend run build`: **Next.js `16.4.6` Turbopack built cleanly (`14/14` App Router pages + `/_not-found`)**
+- `npm --prefix frontend audit --omit=dev --audit-level=moderate`: **found 0 vulnerabilities**
+- `npm --prefix frontend run test:e2e` (Playwright Chromium against live Next.js 16 + Express + FastAPI + PostgreSQL 18 + Memurai Redis): **1/1 full E2E multi-role walkthrough passed (`18.4s` total / `15.1s` test)** across storefront & search (`Apex Studio`), cart, checkout/sandbox payment, order tracking, seller (`Products & Feed Import`), warehouse live stock adjustment, support internal note, admin console (`Run Outbox Dispatch` + Recharts chart), silent cookie refresh reload, `/forgot-password`, and `390x844` mobile + `768x1024` tablet viewports.
 
 ## Captured Playwright Screenshots
 - `docs/assessments/screenshots/01-storefront.png` — Customer storefront catalog, filters & FastAPI recommendations

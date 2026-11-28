@@ -180,4 +180,80 @@ describe('MarketSphere Auth, RBAC, Seller Isolation & Upload Security', () => {
       }
     }
   });
+
+  it('sets HttpOnly SameSite=Lax refresh cookie safely across HTTP localhost and HTTPS proxy requests', async () => {
+    const httpRes = await request(app).post('/api/v1/auth/login').send({
+      email: 'customer@marketsphere.test',
+      password: 'MarketSphere#2026',
+    });
+    expect(httpRes.status).toBe(200);
+    const httpCookie = (httpRes.headers['set-cookie']?.[0] ?? '').toLowerCase();
+    expect(httpCookie).toContain('ms_refresh_token=');
+    expect(httpCookie).toContain('httponly');
+    expect(httpCookie).toContain('samesite=lax');
+    expect(httpCookie).not.toContain('secure');
+
+    const httpsRes = await request(app)
+      .post('/api/v1/auth/login')
+      .set('X-Forwarded-Proto', 'https')
+      .send({
+        email: 'customer@marketsphere.test',
+        password: 'MarketSphere#2026',
+      });
+    expect(httpsRes.status).toBe(200);
+    const httpsCookie = (httpsRes.headers['set-cookie']?.[0] ?? '').toLowerCase();
+    expect(httpsCookie).toContain('secure');
+  });
+
+  it('enforces double-submit CSRF token validation on cookie-authenticated refresh and logout', async () => {
+    const loginRes = await request(app).post('/api/v1/auth/login').send({
+      email: 'customer@marketsphere.test',
+      password: 'MarketSphere#2026',
+    });
+    expect(loginRes.status).toBe(200);
+    const setCookies = (loginRes.headers['set-cookie'] ?? []) as unknown as string[];
+    const refreshCookiePair = setCookies.find((c) => c.startsWith('ms_refresh_token='))?.split(';')[0] ?? '';
+    const csrfCookiePair = setCookies.find((c) => c.startsWith('ms_csrf_token='))?.split(';')[0] ?? '';
+    expect(refreshCookiePair).toContain('ms_refresh_token=');
+    expect(csrfCookiePair).toContain('ms_csrf_token=');
+    const csrfToken = csrfCookiePair.split('=')[1]!;
+    const cookieHeader = `${refreshCookiePair}; ${csrfCookiePair}`;
+
+    // Cookie refresh without X-CSRF-Token header must fail with 403 CSRF_TOKEN_INVALID
+    const badCsrfRefresh = await request(app).post('/api/v1/auth/refresh').set('Cookie', cookieHeader).send({});
+    expect(badCsrfRefresh.status).toBe(403);
+    expect(badCsrfRefresh.body.code).toBe('CSRF_TOKEN_INVALID');
+
+    // Cookie refresh with matching X-CSRF-Token header succeeds
+    const goodRefresh = await request(app)
+      .post('/api/v1/auth/refresh')
+      .set('Cookie', cookieHeader)
+      .set('X-CSRF-Token', csrfToken)
+      .send({});
+    expect(goodRefresh.status).toBe(200);
+    expect(goodRefresh.body.data.accessToken).toBeTruthy();
+
+    // Update cookies from rotated response and reject logout without CSRF
+    const nextCookies = (goodRefresh.headers['set-cookie'] ?? []) as unknown as string[];
+    const nextRefreshPair = nextCookies.find((c) => c.startsWith('ms_refresh_token='))?.split(';')[0] ?? '';
+    const nextCsrfPair = nextCookies.find((c) => c.startsWith('ms_csrf_token='))?.split(';')[0] ?? '';
+    const nextCsrf = nextCsrfPair.split('=')[1]!;
+    const nextCookieHeader = `${nextRefreshPair}; ${nextCsrfPair}`;
+
+    const badLogout = await request(app)
+      .post('/api/v1/auth/logout')
+      .set('Authorization', `Bearer ${goodRefresh.body.data.accessToken}`)
+      .set('Cookie', nextCookieHeader)
+      .send({});
+    expect(badLogout.status).toBe(403);
+    expect(badLogout.body.code).toBe('CSRF_TOKEN_INVALID');
+
+    const okLogout = await request(app)
+      .post('/api/v1/auth/logout')
+      .set('Authorization', `Bearer ${goodRefresh.body.data.accessToken}`)
+      .set('Cookie', nextCookieHeader)
+      .set('X-CSRF-Token', nextCsrf)
+      .send({});
+    expect(okLogout.status).toBe(200);
+  });
 });

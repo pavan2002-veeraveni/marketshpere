@@ -112,6 +112,13 @@ returnsRouter.post('/', validateRequest(createReturnSchema), async (req: Request
     for (const reqItem of req.body.items) {
       const oi = orderItemMap.get(reqItem.orderItemId);
       if (!oi) throw new ValidationError(`Order item ${reqItem.orderItemId} does not belong to order`);
+      if (oi.sellerId !== firstOrderItem.sellerId) {
+        throw new ValidationError(
+          'Return items must belong to a single seller per return request',
+          [],
+          'CROSS_SELLER_RETURN_NOT_ALLOWED',
+        );
+      }
       if (reqItem.quantity > oi.quantity) {
         throw new ValidationError(`Return quantity exceeds purchased quantity for ${oi.skuCodeSnapshot}`);
       }
@@ -326,7 +333,7 @@ refundsRouter.post('/', validateRequest(createRefundSchema), async (req: Request
       throw new ValidationError('Refund amount must be positive');
     }
 
-    const created = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const paymentRows = await tx.$queryRaw<
         Array<{ id: string; provider_payment_id: string | null; amount: Prisma.Decimal; status: PaymentStatus }>
       >`
@@ -338,6 +345,11 @@ refundsRouter.post('/', validateRequest(createRefundSchema), async (req: Request
         LIMIT 1
         FOR UPDATE
       `;
+      const txExistingByIdem = await tx.refund.findUnique({ where: { idempotencyKey } });
+      if (txExistingByIdem) {
+        return { refund: txExistingByIdem, idempotent: true };
+      }
+
       const payment = paymentRows[0];
       if (!payment) {
         throw new ConflictError('No captured payment eligible for refund on this order', 'NO_CAPTURED_PAYMENT');
@@ -398,15 +410,18 @@ refundsRouter.post('/', validateRequest(createRefundSchema), async (req: Request
       });
 
       const order = await tx.order.findUniqueOrThrow({ where: { id: req.body.orderId } });
-      await tx.order.update({
-        where: { id: order.id },
-        data: { status: OrderStatus.REFUNDED },
-      });
+      const nextOrderStatus = isFullRefund || Boolean(req.body.returnId) ? OrderStatus.REFUNDED : order.status;
+      if (nextOrderStatus !== order.status) {
+        await tx.order.update({
+          where: { id: order.id },
+          data: { status: nextOrderStatus },
+        });
+      }
       await tx.orderStatusHistory.create({
         data: {
           orderId: order.id,
           fromStatus: order.status,
-          toStatus: OrderStatus.REFUNDED,
+          toStatus: nextOrderStatus,
           reason: `Refund processed ($${requestedAmount.toFixed(2)}): ${req.body.reason}`,
           changedByUserId: req.user!.userId,
         },
@@ -438,17 +453,23 @@ refundsRouter.post('/', validateRequest(createRefundSchema), async (req: Request
       await recordAuditLog(tx, {
         actorUserId: req.user!.userId,
         actorRole: req.user!.roles[0],
-        action: 'REFUND_PROCESSED',
+        action: isFullRefund ? 'REFUND_PROCESSED' : 'PARTIAL_REFUND_PROCESSED',
         resourceType: 'REFUND',
         resourceId: refund.id,
         requestId: req.requestId,
-        afterState: { amount: requestedAmount.toFixed(2), orderId: order.id },
+        afterState: { amount: requestedAmount.toFixed(2), orderId: order.id, isFullRefund },
       });
 
-      return refund;
+      return { refund, idempotent: false };
     });
 
-    return sendSuccess(req, res, created, 'Refund processed', 201);
+    return sendSuccess(
+      req,
+      res,
+      result.refund,
+      result.idempotent ? 'Refund retrieved idempotently' : 'Refund processed',
+      result.idempotent ? 200 : 201,
+    );
   } catch (err) {
     next(err);
   }

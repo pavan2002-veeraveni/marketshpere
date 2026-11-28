@@ -13,7 +13,10 @@ Ensure two concurrent customers can never reserve the same last unit of inventor
 - PostgreSQL `CHECK (reserved_qty <= on_hand_qty)` enforces stock integrity at the engine level.
 - `releaseExpiredReservations` uses atomic `UPDATE inventory_reservations SET status = 'EXPIRED', released_at = NOW() WHERE id = $1::uuid AND status = 'ACTIVE' RETURNING ...` so parallel sweeps cannot double-release stock.
 
-## Observed Execution Results (`commerce_concurrency.test.ts` — 3/3 PASSED)
+- Multi-warehouse split allocation added in `checkout.routes.ts` when combined SKU stock across sorted warehouses satisfies requested quantity, with positional `finalPricing.items[idx]` lookup.
+- Module coverage verified via `modules_coverage.test.ts` + `commerce_concurrency.test.ts` (`inventory 82.2%`, `checkout 86.15%`).
+
+## Observed Execution Results (`commerce_concurrency.test.ts` — 3/3 PASSED; `modules_coverage.test.ts` multi-warehouse split PASSED)
 - **Simultaneous last-unit checkout (`Promise.all`)**: `statuses = [201, 409]`, loser received `INSUFFICIENT_STOCK`, `onHandQty=1`, `reservedQty=1`; cancellation returned `reservedQty=0`.
 - **Parallel expired reservation sweeps**: `sweep1.releasedCount + sweep2.releasedCount === 1`, `reservedQty=0`, order cancelled.
 - **Discount usage limit & order state machine**: Passed.

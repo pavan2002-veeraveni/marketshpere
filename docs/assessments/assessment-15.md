@@ -8,7 +8,7 @@
 - [`backend/src/workers/processors.ts`](../../backend/src/workers/processors.ts)
 
 ## Observed Execution Results
-All 6 incident simulations executed and passed in `backend/tests/incidents.test.ts` (**6/6 passed**):
+All 8 incident simulations executed and passed in `backend/tests/incidents.test.ts` (**8/8 passed**):
 
 ---
 
@@ -41,4 +41,4 @@ All 6 incident simulations executed and passed in `backend/tests/incidents.test.
 - **Reproduction:** Two concurrent `POST /api/v1/refunds` calls with distinct `Idempotency-Key`s each requesting the full order amount simultaneously.
 - **Root Cause:** Unsynchronized refund creation checks balance outside a row lock, allowing double payouts.
 - **Fix & Regression Test:** `POST /refunds` locks `payments` `FOR UPDATE`, sums existing `PENDING|SUCCEEDED` refunds via `Decimal` math, and rejects excess requests (`409 REFUND_EXCEEDS_PAYMENT`). Verified via `Promise.all` (`[201, 409]`, `refundCount === 1`).
-- **Post-Fix Regression Tightening (`6/6` passed in `incidents.test.ts`):** Incident 4 now enforces `expect(elapsedMs).toBeLessThan(200)` (`73ms` measured) and verifies `pg_indexes` contains `products_title_trgm_idx`; Incident 5 asserts `webhook_events.status === 'FAILED'` and `lastError` after moving webhook audit claims outside rolled-back downstream transactions.
+- **Post-Fix Regression Tightening (`8/8` passed in `incidents.test.ts`):** Incident 4 enforces `expect(elapsedMs).toBeLessThan(200)` and verifies `pg_indexes` contains `products_title_trgm_idx`; Incident 5 asserts `webhook_events.status === 'FAILED'` and `lastError` after moving webhook audit claims outside rolled-back downstream transactions; **Incident 7** runs PostgreSQL `EXPLAIN` (`SET LOCAL enable_seqscan = OFF`) proving `products_title_trgm_idx` GIN index plan selection; **Incident 8** verifies 3-failure `DEAD_LETTER` worker escalation & recovery alongside FastAPI outage deterministic fallback math.

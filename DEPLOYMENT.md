@@ -2,8 +2,8 @@
 
 ## 1. Architecture Topology
 MarketSphere runs as a multi-service stack behind Nginx:
-- **Nginx (`infrastructure/nginx/nginx.conf`)**: Reverse proxy (`/api/*` -> `backend:4000`, `/*` -> `frontend:3000`), TLS termination (`:443`), security headers, gzip compression, and immutable caching for `/_next/static/*`.
-- **Frontend (`frontend:3000`)**: Multi-stage production Next.js container running as non-root `appuser`.
+- **Nginx (`infrastructure/nginx/nginx.conf` & `nginx.tls.conf`)**: Reverse proxy (`/api/*` and `/uploads/*` -> `backend:4000`, `/*` -> `frontend:3000`), TLS termination (`listen 443 ssl; http2 on;`), security headers, gzip compression, and immutable caching for `/_next/static/*`.
+- **Frontend (`frontend:3000`)**: Multi-stage production Next.js 16 container running as non-root `appuser` with `INTERNAL_BACKEND_URL=http://backend:4000`.
 - **Backend (`backend:4000`)**: Multi-stage Express + Prisma container running as non-root `appuser`.
 - **Background Worker (`background-worker`)**: Same backend image executing `node dist/worker.js` for BullMQ queues & repeatable sweeps.
 - **Python Service (`python-service:8000`)**: Slim Python 3.13 Uvicorn FastAPI service running as non-root `appuser`.
@@ -41,11 +41,11 @@ pg_restore -h localhost -p 5435 -U marketsphere -d marketsphere_restore_check ba
 
 ## 6. Local TLS / HTTPS Setup
 - **Linux / macOS / Containers:** Run `bash infrastructure/scripts/generate-local-tls.sh` to create `server.crt` and `server.key` in `infrastructure/nginx/certs/`.
-- **Windows:** Run `powershell -ExecutionPolicy Bypass -File infrastructure\scripts\generate-local-tls.ps1` to generate a self-signed certificate bundle in `infrastructure\nginx\certs\` (`*.crt`, `*.key`, `*.pfx` are gitignored).
+- **Windows:** Run `powershell -ExecutionPolicy Bypass -File infrastructure\scripts\generate-local-tls.ps1` (auto-discovers OpenSSL from PATH or Git for Windows) to generate `server.crt`, PEM `server.key`, and `server.pfx` in `infrastructure\nginx\certs\` (`*.crt`, `*.key`, `*.pfx` are gitignored).
 - Enable HTTPS reverse proxying in Nginx using `infrastructure/nginx/nginx.tls.conf` mounted with `./infrastructure/nginx/certs:/etc/nginx/certs:ro`.
 
 ## 7. Prometheus & Health Metrics Observability
-- **JSON Dependency Health:** `GET /api/v1/health` reports live PostgreSQL, Redis, and Python FastAPI status plus uptime.
+- **JSON Dependency Health:** `GET /api/v1/health` reports live PostgreSQL, Redis, and Python FastAPI status (`ok` vs `degraded` when a dependency is unreachable, with `?strict=true` returning HTTP `503` if degraded) plus uptime.
 - **Prometheus Metrics Scrape:** `GET /api/v1/health/metrics` exposes Prometheus text (`0.0.4`) gauges and counters:
   - `marketsphere_dependency_up{service="postgres|redis|python"}`
   - `marketsphere_outbox_events_pending`

@@ -18,8 +18,8 @@
 - **Playwright E2E (`npm --prefix frontend run test:e2e`):** **1/1 passed** (`11.1s` test, `14.0s` suite).
 
 ## Known Limitations
-- Latest verified test totals after final fixes:
-  - Backend: **`5/5` files, `29/29` integration tests passed in `20.69s`** with v8 `--coverage` (**`60.85%` Stmts / `62.08%` Branch / `57.6%` Funcs / `60.85%` Lines**).
-  - Python: **`11/11` pytest tests passed in `1.14s`**, `ruff check` clean, live benchmark verified (`48.20 ms` / `62.72 ms` / `118.82 ms`).
-  - Frontend: **`5/5` Vitest RTL unit tests passed (`193ms` / `4.50s` run)** + **`1/1` Playwright E2E full-stack + mobile viewport walkthrough passed (`9.2s`)**.
-- Live BullMQ worker execution against a live Redis daemon is blocked on this Windows host because neither Redis/Memurai nor Docker is installed locally; worker tracking, reconciliation, outbox dispatch, and dead-letter transition logic were verified directly against PostgreSQL (`webhooks_refunds_workers.test.ts`).
+- Latest verified test totals after all fixes:
+  - Backend: **`6/6` files (`auth_security`, `commerce_concurrency`, `integration_audit`, `webhooks_refunds_workers`, `incidents`, `modules_coverage`), `41/41` integration tests passed** with v8 `--coverage` (**`80.18%` Stmts / `60.53%` Branch / `84.44%` Funcs / `80.18%` Lines**, enforced thresholds `75/75/70/60`), plus `0` production CVEs.
+  - Python: **`11/11` pytest tests passed**, `96.0%` thread-aware trace coverage, global & pinned `ruff check` clean, live benchmark verified (`55.56 ms` / `108.88 ms` / `263.50 ms`), plus `Precision@3`/`NDCG@3` ranking eval.
+  - Frontend: **`2/2` Vitest RTL files (`8/8` tests passed)** + **`1/1` Playwright E2E full-stack + Warehouse/Support mutations + mobile (`390x844`) & tablet (`768x1024`) walkthrough passed (`18.4s`)**, plus `0` production CVEs.
+- Live Redis + BullMQ worker (`dist/worker.js`) execution, outbox dispatch, and 3-failure `DEAD_LETTER` escalation/replay are verified live against Memurai Redis `127.0.0.1:6379`.

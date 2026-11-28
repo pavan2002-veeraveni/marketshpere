@@ -19,7 +19,7 @@ async function checkDependencies(requestId?: string) {
   let pythonHealthy = false;
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 1500);
+    const timer = setTimeout(() => controller.abort(), 5000);
     const resp = await fetch(`${env.PYTHON_SERVICE_URL}/api/v1/health`, {
       signal: controller.signal,
       headers: requestId ? { 'x-request-id': requestId } : undefined,
@@ -37,8 +37,10 @@ export const healthRouter = Router();
 
 healthRouter.get('/', async (req: Request, res: Response) => {
   const { dbHealthy, redisHealthy, pythonHealthy } = await checkDependencies(req.requestId);
-  const overallStatus = dbHealthy ? 'ok' : 'degraded';
-  const httpStatus = dbHealthy ? 200 : 503;
+  const allHealthy = dbHealthy && redisHealthy && pythonHealthy;
+  const overallStatus = allHealthy ? 'ok' : 'degraded';
+  const strict = req.query.strict === 'true';
+  const httpStatus = !dbHealthy || (strict && !allHealthy) ? 503 : 200;
 
   return sendSuccess(
     req,
@@ -53,7 +55,7 @@ healthRouter.get('/', async (req: Request, res: Response) => {
         pythonService: pythonHealthy ? 'up' : 'down',
       },
     },
-    dbHealthy ? 'Service healthy' : 'Database unavailable',
+    allHealthy ? 'Service healthy' : dbHealthy ? 'Service degraded' : 'Database unavailable',
     httpStatus,
   );
 });

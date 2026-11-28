@@ -35,6 +35,28 @@ const updateShipmentStatusSchema = z.object({
   }),
 });
 
+const CAN_ADVANCE_ORDER_FOR_SHIPMENT: Partial<Record<OrderStatus, OrderStatus[]>> = {
+  [OrderStatus.SHIPPED]: [OrderStatus.PAYMENT_CONFIRMED, OrderStatus.PROCESSING, OrderStatus.READY_TO_SHIP],
+  [OrderStatus.OUT_FOR_DELIVERY]: [
+    OrderStatus.PAYMENT_CONFIRMED,
+    OrderStatus.PROCESSING,
+    OrderStatus.READY_TO_SHIP,
+    OrderStatus.SHIPPED,
+  ],
+  [OrderStatus.DELIVERED]: [
+    OrderStatus.PAYMENT_CONFIRMED,
+    OrderStatus.PROCESSING,
+    OrderStatus.READY_TO_SHIP,
+    OrderStatus.SHIPPED,
+    OrderStatus.OUT_FOR_DELIVERY,
+  ],
+};
+
+function canAdvanceOrderFromShipment(current: OrderStatus, target: OrderStatus | null | undefined): target is OrderStatus {
+  if (!target || current === target) return false;
+  return (CAN_ADVANCE_ORDER_FOR_SHIPMENT[target] ?? []).includes(current);
+}
+
 export const shippingService = {
   async processShippingWebhook(params: {
     rawPayload: string;
@@ -105,7 +127,7 @@ export const shippingService = {
           [ShipmentStatus.DELIVERED]: OrderStatus.DELIVERED,
         };
         const targetOrderStatus = orderStatusMap[params.payload.status];
-        if (targetOrderStatus && shipment.order.status !== targetOrderStatus) {
+        if (canAdvanceOrderFromShipment(shipment.order.status, targetOrderStatus)) {
           await tx.order.update({ where: { id: shipment.orderId }, data: { status: targetOrderStatus } });
           await tx.orderStatusHistory.create({
             data: {
@@ -349,7 +371,7 @@ shipmentsRouter.patch(
                 ? OrderStatus.DELIVERED
                 : null;
 
-        if (orderTarget && shipment.order.status !== orderTarget) {
+        if (canAdvanceOrderFromShipment(shipment.order.status, orderTarget)) {
           await tx.order.update({ where: { id: shipment.orderId }, data: { status: orderTarget } });
           await tx.orderStatusHistory.create({
             data: {

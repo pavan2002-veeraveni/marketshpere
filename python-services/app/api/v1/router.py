@@ -1,4 +1,7 @@
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, File, Query, UploadFile
+
 from app.core.security import verify_internal_token
 from app.models.schemas import (
     CommissionCalculateRequest,
@@ -12,11 +15,7 @@ from app.models.schemas import (
 )
 from app.services.feed_service import process_product_feed
 from app.services.pricing_service import calculate_commissions, calculate_pricing
-from app.services.recommendation_service import (
-    SYNTHETIC_CATALOG,
-    SYNTHETIC_CUSTOMER_HISTORY,
-    generate_recommendations,
-)
+from app.services.recommendation_service import generate_recommendations
 
 router = APIRouter()
 
@@ -62,7 +61,7 @@ def feeds_process_endpoint(payload: FeedProcessRequest):
     dependencies=[Depends(verify_internal_token)],
     tags=["Catalog Feeds"],
 )
-async def feeds_upload_endpoint(file: UploadFile = File(...)):
+async def feeds_upload_endpoint(file: Annotated[UploadFile, File()]):
     raw_bytes = await file.read(10 * 1024 * 1024)
     fmt = "csv" if (file.filename or "").lower().endswith(".csv") else "json"
     return process_product_feed(fmt, raw_bytes.decode("utf-8", errors="replace"))
@@ -86,14 +85,17 @@ def recommendations_post_endpoint(payload: RecommendationRequest):
 )
 def recommendations_get_endpoint(
     customer_id: str,
-    product_id: str | None = Query(default=None),
-    limit: int = Query(default=6, ge=1, le=50),
+    product_id: Annotated[str | None, Query()] = None,
+    purchased_product_ids: Annotated[str | None, Query()] = None,
+    viewed_category_ids: Annotated[str | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=50)] = 6,
 ):
-    purchased, viewed_cats = SYNTHETIC_CUSTOMER_HISTORY.get(customer_id, ([], []))
+    purchased = [s.strip() for s in (purchased_product_ids or "").split(",") if s.strip()]
+    viewed_cats = [s.strip() for s in (viewed_category_ids or "").split(",") if s.strip()]
     req = RecommendationRequest(
         customer_id=customer_id,
         product_id=product_id,
-        catalog=SYNTHETIC_CATALOG,
+        catalog=[],
         purchased_product_ids=purchased,
         viewed_category_ids=viewed_cats,
         limit=limit,

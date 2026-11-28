@@ -188,8 +188,9 @@ export const workerProcessors = {
 
     let reconciled = 0;
     for (const order of confirmedOrdersWithoutCommissions) {
+      const precomputed = await commissionsService.previewOrderCommissionsViaPython(order.id);
       await prisma.$transaction(async (tx) => {
-        await commissionsService.calculateAndPersistOrderCommissionsTx(tx, order.id);
+        await commissionsService.calculateAndPersistOrderCommissionsTx(tx, order.id, precomputed);
       });
       reconciled++;
     }

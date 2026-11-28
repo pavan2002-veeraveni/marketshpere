@@ -4,6 +4,7 @@ import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import {
   CommissionLedgerStatus,
   OrderStatus,
+  PaymentStatus,
   RefundStatus,
   ShipmentStatus,
   UserStatus,
@@ -389,6 +390,188 @@ describe('MarketSphere 10-Point End-to-End Integration Audit Suite', () => {
     if (p1Prices.length > 0 && p2Prices.length > 0) {
       expect(p1Prices[p1Prices.length - 1]!.price).toBeLessThanOrEqual(p2Prices[0]!.price);
     }
+  });
+
+  it('Audit Regression 1: consolidates duplicate SKU lines in checkout to prevent reservation bypass', async () => {
+    const inv = await prisma.inventory.findUniqueOrThrow({
+      where: { skuId_warehouseId: { skuId: seller1SkuId, warehouseId: whEastId } },
+    });
+    const avail = Math.max(1, inv.onHandQty - inv.reservedQty);
+
+    // Passing two duplicate lines for the same SKU/warehouse whose sum exceeds available stock MUST fail with 409
+    const halfPlus = Math.floor(avail / 2) + 1;
+    if (halfPlus <= 50 && halfPlus * 2 > avail) {
+      const overRes = await request(app)
+        .post('/api/v1/checkout')
+        .set('Authorization', `Bearer ${customer1Token}`)
+        .set('Idempotency-Key', `dup_over_${crypto.randomUUID()}`)
+        .send({
+          items: [
+            { skuId: seller1SkuId, warehouseId: whEastId, quantity: halfPlus },
+            { skuId: seller1SkuId, warehouseId: whEastId, quantity: halfPlus },
+          ],
+        });
+      expect(overRes.status).toBe(409);
+      expect(overRes.body.code).toBe('INSUFFICIENT_STOCK');
+    }
+
+    // Passing two valid lines for the same SKU/warehouse merges into 1 OrderItem(qty=2) & reserves 2 units
+    const okRes = await request(app)
+      .post('/api/v1/checkout')
+      .set('Authorization', `Bearer ${customer1Token}`)
+      .set('Idempotency-Key', `dup_merge_${crypto.randomUUID()}`)
+      .send({
+        items: [
+          { skuId: seller1SkuId, warehouseId: whEastId, quantity: 1 },
+          { skuId: seller1SkuId, warehouseId: whEastId, quantity: 1 },
+        ],
+      });
+    expect(okRes.status).toBe(201);
+    expect(okRes.body.data.items).toHaveLength(1);
+    expect(okRes.body.data.items[0].quantity).toBe(2);
+
+    const invAfter = await prisma.inventory.findUniqueOrThrow({
+      where: { skuId_warehouseId: { skuId: seller1SkuId, warehouseId: whEastId } },
+    });
+    expect(invAfter.reservedQty).toBe(inv.reservedQty + 2);
+
+    await request(app)
+      .post(`/api/v1/orders/${okRes.body.data.id}/cancel`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ reason: 'Cleanup duplicate-line regression test' })
+      .expect(200);
+  });
+
+  it('Audit Regression 2: deduplicates concurrent refunds sharing the same Idempotency-Key and preserves DELIVERED on partial refund', async () => {
+    const chk = await request(app)
+      .post('/api/v1/checkout')
+      .set('Authorization', `Bearer ${customer1Token}`)
+      .set('Idempotency-Key', `reg_ref_${crypto.randomUUID()}`)
+      .send({ items: [{ skuId: seller1SkuId, warehouseId: whEastId, quantity: 1 }] });
+    expect(chk.status).toBe(201);
+    const orderId = chk.body.data.id as string;
+    const paymentId = chk.body.data.payment.id as string;
+
+    await request(app)
+      .post(`/api/v1/payments/${paymentId}/confirm-sandbox`)
+      .set('Authorization', `Bearer ${customer1Token}`)
+      .send({ outcome: 'SUCCEED' })
+      .expect(200);
+
+    const ship = await request(app)
+      .post('/api/v1/shipments')
+      .set('Authorization', `Bearer ${warehouseToken}`)
+      .send({ orderId })
+      .expect(201);
+
+    const deliveredPayload = {
+      eventId: `reg_deliv_${crypto.randomUUID()}`,
+      trackingNumber: ship.body.data.trackingNumber,
+      status: ShipmentStatus.DELIVERED,
+      location: 'Porch',
+    };
+    const delivSig = signWebhookPayload(JSON.stringify(deliveredPayload), env.SHIPPING_WEBHOOK_SECRET);
+    await request(app).post('/api/v1/webhooks/shipping').set('X-Marketplace-Signature', delivSig).send(deliveredPayload).expect(200);
+
+    // Concurrent duplicate partial refunds sharing the exact same Idempotency-Key
+    const sharedKey = `conc_same_key_${crypto.randomUUID()}`;
+    const [r1, r2] = await Promise.all([
+      request(app)
+        .post('/api/v1/refunds')
+        .set('Authorization', `Bearer ${supportToken}`)
+        .set('Idempotency-Key', sharedKey)
+        .send({ orderId, amount: '5.00', reason: 'Partial goodwill credit' }),
+      request(app)
+        .post('/api/v1/refunds')
+        .set('Authorization', `Bearer ${supportToken}`)
+        .set('Idempotency-Key', sharedKey)
+        .send({ orderId, amount: '5.00', reason: 'Partial goodwill credit' }),
+    ]);
+
+    expect([r1.status, r2.status].sort()).toEqual([200, 201]);
+    expect(r1.body.data.id).toBe(r2.body.data.id);
+
+    const payRow = await prisma.payment.findUniqueOrThrow({ where: { id: paymentId } });
+    expect(payRow.status).toBe(PaymentStatus.PARTIALLY_REFUNDED);
+
+    const orderAfterPartial = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+    expect(orderAfterPartial.status).toBe(OrderStatus.DELIVERED);
+
+    // Late out-of-order IN_TRANSIT shipping webhook must NOT regress DELIVERED order backward
+    const staleShipPayload = {
+      eventId: `reg_stale_${crypto.randomUUID()}`,
+      trackingNumber: ship.body.data.trackingNumber,
+      status: ShipmentStatus.IN_TRANSIT,
+      location: 'Sorting Facility',
+    };
+    const staleSig = signWebhookPayload(JSON.stringify(staleShipPayload), env.SHIPPING_WEBHOOK_SECRET);
+    await request(app).post('/api/v1/webhooks/shipping').set('X-Marketplace-Signature', staleSig).send(staleShipPayload).expect(200);
+
+    const orderAfterStale = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+    expect(orderAfterStale.status).toBe(OrderStatus.DELIVERED);
+  });
+
+  it('Audit Regression 3: isolates seller shipments in GET /orders, omits multi-seller payment amounts, and rejects cross-seller returns', async () => {
+    const chk = await request(app)
+      .post('/api/v1/checkout')
+      .set('Authorization', `Bearer ${customer1Token}`)
+      .set('Idempotency-Key', `reg_iso_${crypto.randomUUID()}`)
+      .send({ items: [{ skuId: seller1SkuId, quantity: 1 }, { skuId: seller2SkuId, quantity: 1 }] });
+    expect(chk.status).toBe(201);
+    const multiOrderId = chk.body.data.id as string;
+
+    await request(app)
+      .post(`/api/v1/payments/${chk.body.data.payment.id}/confirm-sandbox`)
+      .set('Authorization', `Bearer ${customer1Token}`)
+      .send({ outcome: 'SUCCEED' })
+      .expect(200);
+
+    const s2Ship = await request(app)
+      .post('/api/v1/shipments')
+      .set('Authorization', `Bearer ${seller2Token}`)
+      .send({ orderId: multiOrderId })
+      .expect(201);
+
+    const s1List = await request(app)
+      .get(`/api/v1/orders?search=${encodeURIComponent(chk.body.data.orderNumber)}`)
+      .set('Authorization', `Bearer ${seller1Token}`)
+      .expect(200);
+    const listedOrder = (s1List.body.data as Array<{ id: string; shipments: unknown[]; payments?: unknown }>).find(
+      (o) => o.id === multiOrderId,
+    );
+    expect(listedOrder).toBeDefined();
+    expect(listedOrder!.shipments).toHaveLength(0);
+    expect(listedOrder!.payments).toBeUndefined();
+
+    const s1Detail = await request(app)
+      .get(`/api/v1/orders/${multiOrderId}`)
+      .set('Authorization', `Bearer ${seller1Token}`)
+      .expect(200);
+    expect(s1Detail.body.data.payments).toHaveLength(0);
+
+    // Deliver Seller2 shipment so order moves to DELIVERED, then verify mixed-seller return is blocked
+    const delivPayload = {
+      eventId: `reg_iso_del_${crypto.randomUUID()}`,
+      trackingNumber: s2Ship.body.data.trackingNumber,
+      status: ShipmentStatus.DELIVERED,
+    };
+    const sig = signWebhookPayload(JSON.stringify(delivPayload), env.SHIPPING_WEBHOOK_SECRET);
+    await request(app).post('/api/v1/webhooks/shipping').set('X-Marketplace-Signature', sig).send(delivPayload).expect(200);
+
+    const items = chk.body.data.items as Array<{ id: string }>;
+    const crossReturn = await request(app)
+      .post('/api/v1/returns')
+      .set('Authorization', `Bearer ${customer1Token}`)
+      .send({
+        orderId: multiOrderId,
+        reason: 'Cross-seller items in one return',
+        items: [
+          { orderItemId: items[0]!.id, quantity: 1 },
+          { orderItemId: items[1]!.id, quantity: 1 },
+        ],
+      });
+    expect(crossReturn.status).toBe(400);
+    expect(crossReturn.body.code).toBe('CROSS_SELLER_RETURN_NOT_ALLOWED');
   });
 
   afterAll(async () => {
